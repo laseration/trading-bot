@@ -1,3 +1,5 @@
+const config = require('./config');
+
 function movingAverage(data, period) {
   if (data.length < period) return null;
   const slice = data.slice(-period);
@@ -8,8 +10,8 @@ function movingAverage(data, period) {
 function generateSignal(closes) {
   if (closes.length < 50) return "HOLD";
 
-  const fast = movingAverage(closes, 20);
-  const slow = movingAverage(closes, 50);
+  const shortMA = movingAverage(prices, config.strategy.shortMa);
+  const longMA = movingAverage(prices, config.strategy.longMa);
 
   if (fast === null || slow === null) return "HOLD";
   if (fast > slow) return "BUY";

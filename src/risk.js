@@ -1,7 +1,7 @@
-function positionSize(equity, price, riskPercent = 0.01) {
-  if (price <= 0) return 0;
-  const riskAmount = equity * riskPercent;
-  return Math.max(0, Math.floor(riskAmount / price));
+const config = require('./config');
+function calculatePositionSize(equity, price) {
+  const riskAmount = equity * config.risk.riskPerTrade;
+  return Math.min(Math.floor(riskAmount / price), config.risk.maxPositionSize);
 }
 
-module.exports = { positionSize };
+module.exports = { calculatePositionSize };

@@ -1,8 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 
-const logFilePath = path.join(__dirname, "..", "bot.log");
-const tradeHistoryPath = path.join(__dirname, "..", "trade-history.csv");
+const logFilePath = path.join(__dirname, "..", "logs", "bot.log");
+const tradeHistoryPath = path.join(__dirname, "..", "logs", "trade-history.csv");
+const equityHistoryPath = path.join(__dirname, "..", "logs", "equity-history.csv");
 
 function logTrade(trade) {
   if (!fs.existsSync(tradeHistoryPath)) {
@@ -25,6 +26,24 @@ function logTrade(trade) {
   fs.appendFileSync(tradeHistoryPath, line + "\n");
 }
 
+function logEquity(snapshot) {
+  if (!fs.existsSync(equityHistoryPath)) {
+    fs.appendFileSync(
+      equityHistoryPath,
+      "timestamp,cash,position,equity\n"
+    );
+  }
+
+  const line = [
+    snapshot.timestamp,
+    snapshot.cash,
+    snapshot.position,
+    snapshot.equity,
+  ].join(",");
+
+  fs.appendFileSync(equityHistoryPath, line + "\n");
+}
+
 function log(message) {
   const timestamp = new Date().toISOString();
   const line = `[${timestamp}] ${message}`;
@@ -33,4 +52,4 @@ function log(message) {
   fs.appendFileSync(logFilePath, line + "\n");
 }
 
-module.exports = { log, logTrade };
+module.exports = { log, logTrade, logEquity };

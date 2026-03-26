@@ -1,4 +1,4 @@
-const { log, logTrade } = require('./logger');
+const { log, logTrade, logEquity } = require('./logger');
 const { getLatestPrice } = require('./dataFeed');
 const { generateSignal } = require('./strategy');
 const { calculatePositionSize } = require('./risk');
@@ -62,6 +62,12 @@ function runBot() {
   log(`Cash: ${updatedAccount.cash}`);
   log(`Position: ${updatedAccount.position}`);
   log(`Equity: ${updatedAccount.equity}`);
+  logEquity({
+  timestamp: new Date().toISOString(),
+  cash: updatedAccount.cash,
+  position: updatedAccount.position,
+  equity: updatedAccount.equity,
+});
 }
 
 module.exports = { runBot };
