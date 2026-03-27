@@ -7,6 +7,7 @@ const config = {
   risk: {
     riskPerTrade: 0.01,
     maxPositionSize: 10,
+    maxDrawdownPct: 0.1,
   },
 };
 

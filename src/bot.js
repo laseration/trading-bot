@@ -1,3 +1,4 @@
+const config = require('./config');
 const { log, logTrade, logEquity } = require('./logger');
 const { getLatestPrice } = require('./dataFeed');
 const { generateSignal } = require('./strategy');
@@ -5,6 +6,7 @@ const { calculatePositionSize } = require('./risk');
 const broker = require('./broker');
 
 let prices = [];
+let startingEquity = null;
 
 function runBot() {
   const price = getLatestPrice();
@@ -21,6 +23,18 @@ function runBot() {
   log(`Signal: ${signal}`);
 
   const account = broker.getAccountState(price);
+
+  if (startingEquity === null) {
+  startingEquity = account.equity;
+  log(`Starting equity set to: ${startingEquity}`);
+}
+
+const drawdown = (startingEquity - account.equity) / startingEquity;
+
+if (drawdown >= config.risk.maxDrawdownPct) {
+  log(`Kill switch triggered. Drawdown: ${(drawdown * 100).toFixed(2)}%`);
+  return;
+}
 
   if (signal === "BUY" && account.position === 0) {
     const size = calculatePositionSize(account.cash, price);

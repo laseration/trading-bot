@@ -11,6 +11,7 @@ log(`Interval: ${config.intervalMs}ms`);
 log(`Strategy MA: ${config.strategy.shortMa}/${config.strategy.longMa}`);
 log(`Risk per trade: ${config.risk.riskPerTrade}`);
 log(`Max position size: ${config.risk.maxPositionSize}`);
+log(`Max drawdown: ${config.risk.maxDrawdownPct * 100}%`);
 
 setInterval(() => {
   log("Running bot cycle...");
