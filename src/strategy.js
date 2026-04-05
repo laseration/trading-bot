@@ -8,14 +8,14 @@ function movingAverage(data, period) {
 }
 
 function generateSignal(closes) {
-  if (closes.length < 50) return "HOLD";
+  if (closes.length < config.strategy.longMa) return "HOLD";
 
-  const shortMA = movingAverage(prices, config.strategy.shortMa);
-  const longMA = movingAverage(prices, config.strategy.longMa);
+  const shortMA = movingAverage(closes, config.strategy.shortMa);
+  const longMA = movingAverage(closes, config.strategy.longMa);
 
-  if (fast === null || slow === null) return "HOLD";
-  if (fast > slow) return "BUY";
-  if (fast < slow) return "SELL";
+  if (shortMA === null || longMA === null) return "HOLD";
+  if (shortMA > longMA) return "BUY";
+  if (shortMA < longMA) return "SELL";
   return "HOLD";
 }
 

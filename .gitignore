@@ -1,4 +1,7 @@
 node_modules/
 .env
 .DS_Store
-bot.log
+logs/*
+!logs/.gitkeep
+runtime/
+*.pid
