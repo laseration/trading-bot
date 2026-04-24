@@ -1,0 +1,188 @@
+timestamp,symbol,event_type,side,qty,price,position,position_id,order_id,status,notes
+2026-04-16T03:10:32.000Z,EURUSD,position_opened,BUY,0.01,1.18044,0.01,7834826,2450013,entered,validation:breakeven
+2026-04-16T00:10:33.564Z,EURUSD,position_modified,BUY,0.01,,0.01,,,entered,breakeven_moved
+2026-04-16T03:10:34.000Z,EURUSD,position_closed,BUY,0.01,1.1803,0,7834826,2450014,closed,mt5-history:loss_close
+2026-04-16T03:10:37.000Z,EURUSD,position_opened,BUY,0.04,1.18044,0.04,7834828,2450015,entered,validation:partial-only
+2026-04-16T00:10:39.059Z,EURUSD,position_modified,BUY,0.04,,0.04,,,tp1_hit,partial_tp_taken|tp1_hit|breakeven_moved
+2026-04-16T03:10:38.000Z,EURUSD,position_reduced,BUY,0.02,1.18031,0.02,7834828,2450016,tp1_hit,mt5-history:partial_close
+2026-04-16T03:10:39.000Z,EURUSD,position_closed,BUY,0.02,1.18031,0,7834828,2450017,closed,mt5-history:loss_close
+2026-04-16T03:11:04.000Z,EURUSD,position_opened,BUY,0.04,1.18045,0.04,7834831,2450018,entered,validation:partial-trailing
+2026-04-16T00:11:05.596Z,EURUSD,position_modified,BUY,0.04,,0.04,,,tp1_hit,partial_tp_taken|tp1_hit|breakeven_moved
+2026-04-16T03:11:05.000Z,EURUSD,position_reduced,BUY,0.02,1.18031,0.02,7834831,2450019,tp1_hit,mt5-history:partial_close
+2026-04-16T00:11:06.336Z,EURUSD,position_modified,BUY,0.02,,0.02,,,tp1_hit,trail_stop_advanced
+2026-04-16T00:11:07.066Z,EURUSD,position_modified,BUY,0.02,,0.02,,,tp1_hit,trailing_started
+2026-04-16T03:11:07.000Z,EURUSD,position_closed,BUY,0.02,1.18031,0,7834831,2450020,closed,mt5-history:loss_close
+2026-04-16T06:00:04.376Z,EURUSD,order_placed,BUY,0.68,1.17949,0,,,submitted,Submitting long entry order
+2026-04-16T06:00:05.107Z,EURUSD,position_opened,BUY,0.68,1.18064,0.68,7836012,2451197,ok,Initial long entry
+2026-04-16T13:18:08.964Z,EURUSD,order_placed,BUY,0.32,1.17978,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:18:09.693Z,EURUSD,position_opened,BUY,0.32,1.17829,1,7840918,2455995,ok,Bias scale-in long entry
+2026-04-16T13:19:03.960Z,EURUSD,order_placed,BUY,0.32,1.17978,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:19:04.689Z,EURUSD,position_opened,BUY,0.32,1.17829,1,7840924,2456001,ok,Bias scale-in long entry
+2026-04-16T16:18:59.000Z,EURUSD,position_closed,BUY,0.32,1.17813,0,7840918,2455998,sl_hit,mt5-history:stop_loss
+2026-04-16T13:24:00.003Z,EURUSD,order_placed,BUY,0.32,1.17978,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:24:00.740Z,EURUSD,position_opened,BUY,0.32,1.17824,1,7840954,2456034,ok,Bias scale-in long entry
+2026-04-16T16:23:57.000Z,EURUSD,position_closed,BUY,0.32,1.17812,0,7840924,2456033,sl_hit,mt5-history:stop_loss
+2026-04-16T13:24:23.972Z,EURUSD,order_placed,BUY,0.32,1.17978,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:24:24.715Z,EURUSD,position_opened,BUY,0.32,1.17819,1,7840958,2456038,ok,Bias scale-in long entry
+2026-04-16T16:24:21.000Z,EURUSD,position_closed,BUY,0.32,1.17807,0,7840954,2456037,closed,mt5-history:loss_close
+2026-04-16T13:29:27.014Z,EURUSD,order_placed,BUY,0.32,1.17978,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:29:27.748Z,EURUSD,position_opened,BUY,0.32,1.17814,1,7840976,2456056,ok,Bias scale-in long entry
+2026-04-16T13:30:06.240Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:30:07.020Z,EURUSD,position_opened,BUY,0.32,1.17805,1,7840992,2456073,ok,Bias scale-in long entry
+2026-04-16T16:29:22.000Z,EURUSD,position_closed,BUY,0.32,1.17803,0,7840958,2456053,closed,mt5-history:loss_close
+2026-04-16T16:30:04.000Z,EURUSD,position_closed,BUY,0.32,1.17797,0,7840976,2456070,closed,mt5-history:loss_close
+2026-04-16T13:30:14.745Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T16:30:08.000Z,EURUSD,position_closed,BUY,0.32,1.17789,0,7840992,2456074,sl_hit,mt5-history:stop_loss
+2026-04-16T13:30:15.482Z,EURUSD,position_opened,BUY,0.32,1.17801,1,7840994,2456075,ok,Bias scale-in long entry
+2026-04-16T13:30:23.227Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:30:24.015Z,EURUSD,position_opened,BUY,0.32,1.17803,1,7841000,2456082,ok,Bias scale-in long entry
+2026-04-16T13:30:47.218Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:30:47.995Z,EURUSD,position_opened,BUY,0.32,1.17796,1,7841013,2456095,ok,Bias scale-in long entry
+2026-04-16T16:30:16.000Z,EURUSD,position_closed,BUY,0.32,1.17785,0,7840994,2456079,sl_hit,mt5-history:stop_loss
+2026-04-16T16:30:40.000Z,EURUSD,position_closed,BUY,0.32,1.17786,0,7841000,2456090,sl_hit,mt5-history:stop_loss
+2026-04-16T16:31:11.000Z,EURUSD,position_closed,BUY,0.32,1.1778,0,7841013,2456101,sl_hit,mt5-history:stop_loss
+2026-04-16T13:31:17.996Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:31:18.730Z,EURUSD,position_opened,BUY,0.32,1.17793,1,7841021,2456103,ok,Bias scale-in long entry
+2026-04-16T13:31:26.480Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:31:27.214Z,EURUSD,position_opened,BUY,0.32,1.17793,1,7841023,2456105,ok,Bias scale-in long entry
+2026-04-16T13:31:50.489Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:31:51.221Z,EURUSD,position_opened,BUY,0.32,1.17794,1,7841026,2456108,ok,Bias scale-in long entry
+2026-04-16T13:31:58.948Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:31:59.726Z,EURUSD,position_opened,BUY,0.32,1.17803,1,7841029,2456111,ok,Bias scale-in long entry
+2026-04-16T16:31:20.000Z,EURUSD,position_closed,BUY,0.32,1.17778,0,7841021,2456104,sl_hit,mt5-history:stop_loss
+2026-04-16T16:31:45.000Z,EURUSD,position_closed,BUY,0.32,1.17777,0,7841023,2456107,sl_hit,mt5-history:stop_loss
+2026-04-16T16:31:51.000Z,EURUSD,position_closed,BUY,0.32,1.17779,0,7841026,2456109,sl_hit,mt5-history:stop_loss
+2026-04-16T13:32:22.986Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:32:23.723Z,EURUSD,position_opened,BUY,0.32,1.17798,1,7841033,2456115,ok,Bias scale-in long entry
+2026-04-16T13:32:31.487Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:32:32.223Z,EURUSD,position_opened,BUY,0.32,1.17799,0.68,7841035,2456117,ok,Bias scale-in long entry
+2026-04-16T13:32:39.951Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:32:40.729Z,EURUSD,position_opened,BUY,0.32,1.17798,0.68,7841037,2456119,ok,Bias scale-in long entry
+2026-04-16T13:32:48.488Z,EURUSD,order_placed,BUY,0.32,1.17917,0.68,,,submitted,Submitting long entry order
+2026-04-16T13:32:49.216Z,EURUSD,position_opened,BUY,0.32,1.17793,1,7841040,2456122,ok,Bias scale-in long entry
+2026-04-16T16:32:20.000Z,EURUSD,position_closed,BUY,0.32,1.17787,0,7841029,2456114,sl_hit,mt5-history:stop_loss
+2026-04-16T16:32:25.000Z,EURUSD,position_closed,BUY,0.32,1.17782,0,7841033,2456116,sl_hit,mt5-history:stop_loss
+2026-04-16T16:32:31.000Z,EURUSD,position_closed,BUY,0.32,1.17784,0,7841035,2456118,sl_hit,mt5-history:stop_loss
+2026-04-16T16:32:40.000Z,EURUSD,position_closed,BUY,0.32,1.17783,0,7841037,2456120,sl_hit,mt5-history:stop_loss
+2026-04-16T16:37:22.000Z,EURUSD,position_closed,BUY,0.32,1.17777,0,7841040,2456190,sl_hit,mt5-history:stop_loss
+2026-04-16T14:15:07.495Z,EURUSD,order_placed,BUY,0.32,1.17934,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:15:08.290Z,EURUSD,position_opened,BUY,0.32,1.17788,1,7842420,2457538,ok,Bias scale-in long entry
+2026-04-16T17:15:13.000Z,EURUSD,position_closed,BUY,0.32,1.17771,0,7842420,2457543,sl_hit,mt5-history:stop_loss
+2026-04-16T14:20:17.736Z,EURUSD,order_placed,BUY,0.32,1.17934,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:20:18.476Z,EURUSD,position_opened,BUY,0.32,1.17758,1,7842582,2457699,ok,Bias scale-in long entry
+2026-04-16T14:20:49.508Z,EURUSD,order_placed,BUY,0.32,1.17934,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:20:50.238Z,EURUSD,position_opened,BUY,0.32,1.17757,1,7842608,2457725,ok,Bias scale-in long entry
+2026-04-16T17:20:43.000Z,EURUSD,position_closed,BUY,0.32,1.17743,0,7842582,2457723,sl_hit,mt5-history:stop_loss
+2026-04-16T17:22:32.000Z,EURUSD,position_closed,BUY,0.32,1.17742,0,7842608,2457754,sl_hit,mt5-history:stop_loss
+2026-04-16T14:26:23.681Z,EURUSD,order_placed,BUY,0.32,1.17934,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:26:24.234Z,EURUSD,position_opened,BUY,0.32,1.17774,1,7842760,2457874,ok,Bias scale-in long entry
+2026-04-16T14:27:03.725Z,EURUSD,order_placed,BUY,0.32,1.17934,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:27:04.508Z,EURUSD,position_opened,BUY,0.32,1.17773,1,7842769,2457882,ok,Bias scale-in long entry
+2026-04-16T17:27:03.000Z,EURUSD,position_closed,BUY,0.32,1.17758,0,7842760,2457881,sl_hit,mt5-history:stop_loss
+2026-04-16T14:27:59.000Z,EURUSD,order_placed,BUY,0.32,1.17934,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:27:59.763Z,EURUSD,position_opened,BUY,0.32,1.17772,1,7842796,2457909,ok,Bias scale-in long entry
+2026-04-16T17:27:56.000Z,EURUSD,position_closed,BUY,0.32,1.17757,0,7842769,2457900,sl_hit,mt5-history:stop_loss
+2026-04-16T14:40:18.101Z,EURUSD,order_placed,BUY,0.32,1.17943,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:40:18.891Z,EURUSD,position_opened,BUY,0.32,1.17768,1,7843259,2458365,ok,Bias scale-in long entry
+2026-04-16T14:40:34.355Z,EURUSD,order_placed,BUY,0.32,1.17943,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:40:35.150Z,EURUSD,position_opened,BUY,0.32,1.17768,1,7843314,2458420,ok,Bias scale-in long entry
+2026-04-16T14:40:43.348Z,EURUSD,order_placed,BUY,0.32,1.17943,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:40:44.092Z,EURUSD,position_opened,BUY,0.32,1.17764,1,7843340,2458446,ok,Bias scale-in long entry
+2026-04-16T14:40:51.851Z,EURUSD,order_placed,BUY,0.32,1.17943,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:40:52.597Z,EURUSD,position_opened,BUY,0.32,1.17757,1,7843386,2458495,ok,Bias scale-in long entry
+2026-04-16T17:40:17.000Z,EURUSD,position_closed,BUY,0.32,1.17755,0,7842796,2458364,sl_hit,mt5-history:stop_loss
+2026-04-16T17:40:28.000Z,EURUSD,position_closed,BUY,0.32,1.17751,0,7843259,2458395,sl_hit,mt5-history:stop_loss
+2026-04-16T17:40:38.000Z,EURUSD,position_closed,BUY,0.32,1.17752,0,7843314,2458431,sl_hit,mt5-history:stop_loss
+2026-04-16T17:40:48.000Z,EURUSD,position_closed,BUY,0.32,1.17749,0,7843340,2458457,sl_hit,mt5-history:stop_loss
+2026-04-16T14:51:38.868Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:51:39.598Z,EURUSD,position_opened,BUY,0.32,1.17755,1,7843675,2458781,ok,Bias scale-in long entry
+2026-04-16T14:51:47.384Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:51:48.113Z,EURUSD,position_opened,BUY,0.32,1.17753,1,7843677,2458783,ok,Bias scale-in long entry
+2026-04-16T17:51:31.000Z,EURUSD,position_closed,BUY,0.32,1.17742,0,7843386,2458779,sl_hit,mt5-history:stop_loss
+2026-04-16T17:51:45.000Z,EURUSD,position_closed,BUY,0.32,1.17739,0,7843675,2458782,sl_hit,mt5-history:stop_loss
+2026-04-16T14:52:27.103Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:52:27.853Z,EURUSD,position_opened,BUY,0.32,1.17749,1,7843682,2458788,ok,Bias scale-in long entry
+2026-04-16T14:52:35.628Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:52:36.360Z,EURUSD,position_opened,BUY,0.32,1.17748,1,7843684,2458790,ok,Bias scale-in long entry
+2026-04-16T14:52:59.615Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:00.346Z,EURUSD,position_opened,BUY,0.32,1.17744,1,7843688,2458794,ok,Bias scale-in long entry
+2026-04-16T14:53:08.135Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:08.831Z,EURUSD,position_opened,BUY,0.32,1.17744,1,7843690,2458796,ok,Bias scale-in long entry
+2026-04-16T14:53:16.617Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:17.362Z,EURUSD,position_opened,BUY,0.32,1.17742,1,7843692,2458798,ok,Bias scale-in long entry
+2026-04-16T17:52:23.000Z,EURUSD,position_closed,BUY,0.32,1.17737,0,7843677,2458787,sl_hit,mt5-history:stop_loss
+2026-04-16T17:52:30.000Z,EURUSD,position_closed,BUY,0.32,1.17733,0,7843682,2458789,sl_hit,mt5-history:stop_loss
+2026-04-16T17:52:55.000Z,EURUSD,position_closed,BUY,0.32,1.17732,0,7843684,2458793,sl_hit,mt5-history:stop_loss
+2026-04-16T17:53:00.000Z,EURUSD,position_closed,BUY,0.32,1.17728,0,7843688,2458795,sl_hit,mt5-history:stop_loss
+2026-04-16T17:53:15.000Z,EURUSD,position_closed,BUY,0.32,1.17728,0,7843690,2458797,sl_hit,mt5-history:stop_loss
+2026-04-16T14:53:25.122Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:25.853Z,EURUSD,position_opened,BUY,0.32,1.17743,1,7843695,2458801,ok,Bias scale-in long entry
+2026-04-16T14:53:33.622Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:34.361Z,EURUSD,position_opened,BUY,0.32,1.17739,1,7843697,2458803,ok,Bias scale-in long entry
+2026-04-16T14:53:42.138Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:42.872Z,EURUSD,position_opened,BUY,0.32,1.17741,1,7843699,2458805,ok,Bias scale-in long entry
+2026-04-16T14:53:50.642Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:53:51.373Z,EURUSD,position_opened,BUY,0.32,1.17739,1,7843701,2458807,ok,Bias scale-in long entry
+2026-04-16T14:54:07.345Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:54:08.094Z,EURUSD,position_opened,BUY,0.32,1.17735,1,7843703,2458809,ok,Bias scale-in long entry
+2026-04-16T14:54:15.840Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:54:16.625Z,EURUSD,position_opened,BUY,0.32,1.17731,1,7843705,2458811,ok,Bias scale-in long entry
+2026-04-16T17:53:19.000Z,EURUSD,position_closed,BUY,0.32,1.17725,0,7843692,2458799,sl_hit,mt5-history:stop_loss
+2026-04-16T17:53:28.000Z,EURUSD,position_closed,BUY,0.32,1.17727,0,7843695,2458802,sl_hit,mt5-history:stop_loss
+2026-04-16T17:53:37.000Z,EURUSD,position_closed,BUY,0.32,1.17723,0,7843697,2458804,sl_hit,mt5-history:stop_loss
+2026-04-16T17:53:46.000Z,EURUSD,position_closed,BUY,0.32,1.17725,0,7843699,2458806,sl_hit,mt5-history:stop_loss
+2026-04-16T17:54:05.000Z,EURUSD,position_closed,BUY,0.32,1.17724,0,7843701,2458808,sl_hit,mt5-history:stop_loss
+2026-04-16T14:54:32.617Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:54:33.353Z,EURUSD,position_opened,BUY,0.32,1.17724,1,7843707,2458813,ok,Bias scale-in long entry
+2026-04-16T17:54:15.000Z,EURUSD,position_closed,BUY,0.32,1.17718,0,7843703,2458810,sl_hit,mt5-history:stop_loss
+2026-04-16T14:54:41.362Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:54:42.096Z,EURUSD,position_opened,BUY,0.32,1.17723,1,7843709,2458815,ok,Bias scale-in long entry
+2026-04-16T14:55:05.378Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:06.113Z,EURUSD,position_opened,BUY,0.32,1.17718,0.68,7843718,2458824,ok,Bias scale-in long entry
+2026-04-16T14:55:13.878Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:14.613Z,EURUSD,position_opened,BUY,0.32,1.17723,1,7843722,2458828,ok,Bias scale-in long entry
+2026-04-16T14:55:22.351Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:23.094Z,EURUSD,position_opened,BUY,0.32,1.17719,0.68,7843724,2458830,ok,Bias scale-in long entry
+2026-04-16T14:55:30.876Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:31.610Z,EURUSD,position_opened,BUY,0.32,1.17716,1,7843726,2458832,ok,Bias scale-in long entry
+2026-04-16T17:54:29.000Z,EURUSD,position_closed,BUY,0.32,1.17715,0,7843705,2458812,sl_hit,mt5-history:stop_loss
+2026-04-16T17:54:41.000Z,EURUSD,position_closed,BUY,0.32,1.17709,0,7843707,2458814,closed,mt5-history:loss_close
+2026-04-16T17:55:00.000Z,EURUSD,position_closed,BUY,0.32,1.17707,0,7843709,2458820,closed,mt5-history:loss_close
+2026-04-16T14:55:39.360Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:40.101Z,EURUSD,position_opened,BUY,0.32,1.17714,0.68,7843729,2458835,ok,Bias scale-in long entry
+2026-04-16T17:55:05.000Z,EURUSD,position_closed,BUY,0.32,1.17702,0,7843718,2458825,closed,mt5-history:loss_close
+2026-04-16T17:55:14.000Z,EURUSD,position_closed,BUY,0.32,1.17706,0,7843722,2458829,closed,mt5-history:loss_close
+2026-04-16T17:55:22.000Z,EURUSD,position_closed,BUY,0.32,1.17702,0,7843724,2458831,closed,mt5-history:loss_close
+2026-04-16T17:55:33.000Z,EURUSD,position_closed,BUY,0.32,1.17701,0,7843726,2458833,closed,mt5-history:loss_close
+2026-04-16T14:55:48.080Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:48.859Z,EURUSD,position_opened,BUY,0.32,1.17718,1,7843733,2458839,ok,Bias scale-in long entry
+2026-04-16T14:55:56.624Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:55:57.355Z,EURUSD,position_opened,BUY,0.32,1.17716,1,7843735,2458841,ok,Bias scale-in long entry
+2026-04-16T14:56:05.082Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:56:05.863Z,EURUSD,position_opened,BUY,0.32,1.1771,0.68,7843737,2458843,ok,Bias scale-in long entry
+2026-04-16T14:56:13.616Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:56:14.353Z,EURUSD,position_opened,BUY,0.32,1.17709,1,7843739,2458845,ok,Bias scale-in long entry
+2026-04-16T17:55:39.000Z,EURUSD,position_closed,BUY,0.32,1.17699,0,7843729,2458836,closed,mt5-history:loss_close
+2026-04-16T17:55:51.000Z,EURUSD,position_closed,BUY,0.32,1.17703,0,7843733,2458840,closed,mt5-history:loss_close
+2026-04-16T17:56:00.000Z,EURUSD,position_closed,BUY,0.32,1.177,0,7843735,2458842,closed,mt5-history:loss_close
+2026-04-16T17:56:05.000Z,EURUSD,position_closed,BUY,0.32,1.17694,0,7843737,2458844,closed,mt5-history:loss_close
+2026-04-16T14:57:08.876Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:57:09.616Z,EURUSD,position_opened,BUY,0.32,1.17703,1,7843747,2458853,ok,Bias scale-in long entry
+2026-04-16T17:57:07.000Z,EURUSD,position_closed,BUY,0.32,1.17692,0,7843739,2458852,closed,mt5-history:loss_close
+2026-04-16T14:57:48.867Z,EURUSD,order_placed,BUY,0.32,1.17923,0.68,,,submitted,Submitting long entry order
+2026-04-16T14:57:49.602Z,EURUSD,position_opened,BUY,0.32,1.17698,1,7843760,2458866,ok,Bias scale-in long entry
+2026-04-16T17:57:44.000Z,EURUSD,position_closed,BUY,0.32,1.17687,0,7843747,2458863,closed,mt5-history:loss_close
+2026-04-16T20:14:36.000Z,EURUSD,position_closed,BUY,0.32,1.17682,0,7843760,2460103,closed,mt5-history:loss_close
+2026-04-16T20:45:00.948Z,EURUSD,order_placed,SELL,0.68,1.17855,0.68,,,submitted,Submitting reversal close order
+2026-04-16T20:45:01.214Z,EURUSD,position_closed,SELL,0.68,1.17818,0,,,ok,Closed opposing position for reversal
+2026-04-16T20:45:01.472Z,EURUSD,order_placed,SELL,0.32,1.17855,0,,,submitted,Submitting sell order
+2026-04-16T20:45:02.196Z,EURUSD,position_opened,SELL,0.32,1.17818,-0.32,7846182,2461249,ok,Initial short entry
+2026-04-16T23:45:01.000Z,EURUSD,position_closed,BUY,0.68,1.17818,0,7836012,2461248,closed,mt5-history:loss_close
+2026-04-17T00:02:01.000Z,EURUSD,position_reduced,SELL,0.16,1.17808,0.16,7846182,2461396,rejected,mt5-history:partial_close
+2026-04-17T01:05:21.513Z,EURUSD,position_modified,SELL,0.16,,0.16,,,tp1_hit,partial_tp_taken|tp1_hit|breakeven_moved
+2026-04-17T04:05:21.000Z,EURUSD,position_reduced,SELL,0.08,1.1777,0.08,7846182,2462384,tp1_hit,mt5-history:partial_close
+2026-04-17T01:08:56.044Z,EURUSD,position_modified,SELL,0.08,,0.08,,,tp1_hit,trail_stop_advanced
+2026-04-17T06:42:55.000Z,EURUSD,position_closed,SELL,0.08,1.17809,0,7846182,2462856,closed,mt5-history:take_profit_or_profit_close
+2026-04-20T12:15:51.099Z,XAUUSD,order_placed,SELL,0.41,4790.01,0,,,submitted,Submitting sell order
+2026-04-20T12:15:51.843Z,XAUUSD,position_opened,SELL,0.41,4808.2,-0.82,8132562,2476252,ok,Initial short entry
+2026-04-20T15:15:55.000Z,XAUUSD,position_closed,SELL,0.41,4808.64,0,8132562,2476254,closed,mt5-history:loss_close
