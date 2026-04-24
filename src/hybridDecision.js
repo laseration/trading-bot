@@ -95,6 +95,7 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   const blocks = [];
   let score = 0;
   const strategyName = String(candidate.strategyName || '').toLowerCase();
+  const setupType = String(candidate.setupType || '').toLowerCase();
   const indicators = candidate.indicators && typeof candidate.indicators === 'object' ? candidate.indicators : {};
   const riskMetrics = calculateRiskMetrics(
     direction,
@@ -241,9 +242,14 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     score += addCheck(checks, 'regime_filter', true, marketContext.regime === 'TRENDING' ? 5 : 2, marketContext.regime || 'unknown');
   }
 
+  const isEurUsdBias = symbol === 'EURUSD'
+    && sourceType === 'STRATEGY'
+    && strategyName === 'bias';
+  const isEurUsdBreakoutRetest = isEurUsdBias && setupType === 'breakout_retest';
+  const isEurUsdTrendContinuation = isEurUsdBias && setupType === 'trend_continuation';
   const trendAligned = marketContext.trendBias === 'HOLD' || marketContext.trendBias === direction;
   score += addCheck(checks, 'trend_alignment', trendAligned, 25, marketContext.trendBias || 'HOLD');
-  if (!trendAligned && settings.requireTrendAlignment) {
+  if (!trendAligned && settings.requireTrendAlignment && !isEurUsdBreakoutRetest) {
     blocks.push('trend_conflict');
     reasons.push(`direction conflicts with trend (${marketContext.trendBias})`);
   }
@@ -254,13 +260,11 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   const emaSeparationAtr = Number(indicators.emaSeparationAtr);
   const cleanEmaAlignment = (direction === 'BUY' && emaFast > emaSlow)
     || (direction === 'SELL' && emaFast < emaSlow);
-  const isEurUsdBias = symbol === 'EURUSD'
-    && sourceType === 'STRATEGY'
-    && strategyName === 'bias';
-  const isEurUsdRangingBias = isEurUsdBias && marketContext.regime === 'RANGING';
+  const isEurUsdRangingBias = isEurUsdBias && marketContext.regime === 'RANGING' && !isEurUsdBreakoutRetest;
   const isEurUsdUnstableBias = isEurUsdBias && marketContext.regime === 'UNSTABLE';
   const isEurUsdOverrideRegime = isEurUsdBias && ['RANGING', 'UNSTABLE'].includes(marketContext.regime);
   const requiresEurUsdBiasHardening = isEurUsdBias;
+  const requiresEurUsdH1Alignment = isEurUsdBias && !isEurUsdBreakoutRetest;
   const priceTooStretched = strategyReasons.includes('price_too_stretched');
   const priceSlightlyStretched = strategyReasons.includes('price_slightly_stretched');
   const continuationCheck = direction === 'BUY'
@@ -279,6 +283,27 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   const newYorkMinFinalRr = Number(config.safetyControls.eurusdNewYorkMinFinalRr || settings.minFinalRiskReward);
   const overlapMinFinalRr = Math.max(londonMinFinalRr, settings.minFinalRiskReward);
 
+  if (isEurUsdBias && !setupType) {
+    checks.push({ name: 'eurusd_setup_type', passed: false, score: -100, note: 'missing' });
+    score -= 100;
+    blocks.push('eurusd_missing_setup_type');
+    reasons.push('eurusd_missing_setup_type');
+  } else if (isEurUsdBias && !isEurUsdTrendContinuation && !isEurUsdBreakoutRetest) {
+    checks.push({ name: 'eurusd_setup_type', passed: false, score: -100, note: setupType });
+    score -= 100;
+    blocks.push('eurusd_invalid_setup_type');
+    reasons.push('eurusd_invalid_setup_type');
+  } else if (isEurUsdBias) {
+    score += addCheck(checks, 'eurusd_setup_type', true, 8, setupType);
+  }
+
+  if (isEurUsdTrendContinuation && marketContext.regime !== 'TRENDING') {
+    checks.push({ name: 'eurusd_trend_continuation_regime', passed: false, score: -100, note: marketContext.regime || 'UNKNOWN' });
+    score -= 100;
+    blocks.push('eurusd_trend_continuation_requires_trending');
+    reasons.push('eurusd_trend_continuation_requires_trending');
+  }
+
   const rrTp1Ok = rrTp1 == null || rrTp1 >= settings.minTp1RiskReward;
   score += addCheck(checks, 'rr_tp1', rrTp1Ok, 8, rrTp1 == null ? 'n/a' : rrTp1.toFixed(2));
   if (!rrTp1Ok) {
@@ -293,6 +318,13 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     reasons.push(`final rr ${rrFinal.toFixed(2)} below ${settings.minFinalRiskReward}`);
   }
 
+  if (isEurUsdBias && (rrTp1 == null || rrFinal == null)) {
+    checks.push({ name: 'eurusd_rr_required', passed: false, score: -100, note: `rrTp1=${rrTp1 ?? 'na'} rrFinal=${rrFinal ?? 'na'}` });
+    score -= 100;
+    blocks.push('eurusd_missing_rr');
+    reasons.push('eurusd_missing_rr');
+  }
+
   if (isEurUsdRangingBias && !config.safetyControls.eurusdBiasAllowRanging) {
     checks.push({ name: 'eurusd_bias_regime_gate', passed: false, score: -100, note: 'RANGING' });
     score -= 100;
@@ -305,6 +337,32 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     score -= 100;
     blocks.push('eurusd_bias_unstable_block');
     reasons.push('eurusd_bias_unstable_block');
+  }
+
+  if (isEurUsdBreakoutRetest) {
+    const breakoutConfirmed = indicators.breakoutConfirmed === true;
+    const retestConfirmed = indicators.retestConfirmed === true;
+
+    if (!config.strategy.eurusdAllowBreakoutRetest) {
+      checks.push({ name: 'eurusd_breakout_retest_enabled', passed: false, score: -100, note: 'disabled' });
+      score -= 100;
+      blocks.push('eurusd_breakout_retest_disabled');
+      reasons.push('eurusd_breakout_retest_disabled');
+    }
+
+    if (!breakoutConfirmed || !retestConfirmed) {
+      checks.push({
+        name: 'eurusd_breakout_retest_confirmation',
+        passed: false,
+        score: -100,
+        note: `breakout=${breakoutConfirmed} retest=${retestConfirmed}`,
+      });
+      score -= 100;
+      blocks.push('eurusd_breakout_retest_not_confirmed');
+      reasons.push('eurusd_breakout_retest_not_confirmed');
+    } else {
+      score += addCheck(checks, 'eurusd_breakout_retest_confirmation', true, 15, indicators.breakoutLevel || 'confirmed');
+    }
   }
 
   if (isEurUsdBias && sessionBucket === 'ASIA') {
@@ -322,11 +380,16 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   }
 
   if (isEurUsdBias && sessionBucket === 'LONDON') {
-    if (marketContext.regime !== 'TRENDING' || !trendAligned || rrFinal == null || rrFinal < londonMinFinalRr) {
+    if (!isEurUsdBreakoutRetest && (marketContext.regime !== 'TRENDING' || !trendAligned || rrFinal == null || rrFinal < londonMinFinalRr)) {
       checks.push({ name: 'eurusd_london_session_profile', passed: false, score: -30, note: sessionBucket });
       score -= 30;
       blocks.push('eurusd_london_requires_trending_bias');
       reasons.push('eurusd_london_requires_trending_bias');
+    } else if (isEurUsdBreakoutRetest && (rrFinal == null || rrFinal < londonMinFinalRr)) {
+      checks.push({ name: 'eurusd_london_session_profile', passed: false, score: -30, note: sessionBucket });
+      score -= 30;
+      blocks.push('eurusd_london_breakout_rr_floor');
+      reasons.push('eurusd_london_breakout_rr_floor');
     }
   }
 
@@ -339,20 +402,25 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
       && !(recentFailedZone && recentFailedZone.active);
     const newYorkRrOk = rrFinal != null && rrFinal >= newYorkMinFinalRr;
 
-    if (marketContext.regime !== 'TRENDING' || !newYorkStrictTrendAligned || !newYorkRrOk || !cleanContinuationOk) {
+    if (!isEurUsdBreakoutRetest && (marketContext.regime !== 'TRENDING' || !newYorkStrictTrendAligned || !newYorkRrOk || !cleanContinuationOk)) {
       checks.push({ name: 'eurusd_newyork_session_profile', passed: false, score: -35, note: sessionBucket });
       score -= 35;
       blocks.push('eurusd_newyork_requires_clean_continuation');
       reasons.push('eurusd_newyork_requires_clean_continuation');
+    } else if (isEurUsdBreakoutRetest && !newYorkRrOk) {
+      checks.push({ name: 'eurusd_newyork_session_profile', passed: false, score: -35, note: sessionBucket });
+      score -= 35;
+      blocks.push('eurusd_newyork_breakout_rr_floor');
+      reasons.push('eurusd_newyork_breakout_rr_floor');
     }
   }
 
-  if (requiresEurUsdBiasHardening && !h1BiasAligned) {
+  if (requiresEurUsdH1Alignment && !h1BiasAligned) {
     checks.push({ name: 'h1_bias_alignment', passed: false, score: -25, note: h1BiasDirection || 'HOLD' });
     score -= 25;
     blocks.push('weak_h1_bias');
     reasons.push('weak_h1_bias');
-  } else if (requiresEurUsdBiasHardening) {
+  } else if (requiresEurUsdH1Alignment) {
     score += addCheck(checks, 'h1_bias_alignment', true, 12, h1BiasDirection || direction);
   }
 
@@ -393,7 +461,7 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     });
     score -= thesisPenalty;
 
-    if (isEurUsdOverrideRegime) {
+    if (isEurUsdOverrideRegime || isEurUsdBreakoutRetest) {
       blocks.push('same_thesis_retry_block');
       reasons.push('same_thesis_retry_block');
     }
@@ -491,12 +559,21 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   let decision = 'REJECT';
 
   const forceReject = blocks.includes('regime_dead')
+    || blocks.includes('eurusd_missing_setup_type')
+    || blocks.includes('eurusd_invalid_setup_type')
+    || blocks.includes('eurusd_trend_continuation_requires_trending')
+    || blocks.includes('eurusd_missing_rr')
     || blocks.includes('eurusd_bias_ranging_block')
     || blocks.includes('eurusd_bias_unstable_block')
+    || blocks.includes('eurusd_breakout_retest_disabled')
+    || blocks.includes('eurusd_breakout_retest_not_confirmed')
     || blocks.includes('eurusd_asia_session_block')
     || blocks.includes('eurusd_late_newyork_block')
     || blocks.includes('eurusd_london_requires_trending_bias')
+    || blocks.includes('eurusd_london_breakout_rr_floor')
     || blocks.includes('eurusd_newyork_requires_clean_continuation')
+    || blocks.includes('eurusd_newyork_breakout_rr_floor')
+    || blocks.includes('same_thesis_retry_block')
     || (isEurUsdOverrideRegime && blocks.length > 0);
 
   if (

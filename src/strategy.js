@@ -571,6 +571,122 @@ function analyzeBiasTriggerCandle(latestBar = {}, previousBar = {}, emaFast, atr
   };
 }
 
+function analyzeEurUsdBreakoutRetest(bars = [], atr) {
+  const lookback = Math.max(5, Number(config.strategy.eurusdBreakoutLookbackBars || 20));
+  const latestBar = bars[bars.length - 1] || {};
+  const breakoutBar = bars[bars.length - 2] || {};
+  const rangeBars = bars.slice(Math.max(0, bars.length - lookback - 2), bars.length - 2);
+
+  const base = {
+    recentRangeHigh: null,
+    recentRangeLow: null,
+    rangeSizeAtr: null,
+    breakoutDirection: null,
+    breakoutLevel: null,
+    breakoutConfirmed: false,
+    retestConfirmed: false,
+    breakoutBodyAtr: null,
+    retestDistanceAtr: null,
+  };
+
+  if (!Array.isArray(rangeBars) || rangeBars.length < lookback || !(Number.isFinite(atr) && atr > 0)) {
+    return { ...base, reason: 'insufficient_breakout_range' };
+  }
+
+  const highs = rangeBars.map((bar) => Number(bar.high)).filter(Number.isFinite);
+  const lows = rangeBars.map((bar) => Number(bar.low)).filter(Number.isFinite);
+  const recentRangeHigh = Math.max(...highs);
+  const recentRangeLow = Math.min(...lows);
+  const rangeSizeAtr = (recentRangeHigh - recentRangeLow) / atr;
+  const breakoutOpen = Number(breakoutBar.open);
+  const breakoutClose = Number(breakoutBar.close);
+  const latestOpen = Number(latestBar.open);
+  const latestClose = Number(latestBar.close);
+  const latestHigh = Number(latestBar.high);
+  const latestLow = Number(latestBar.low);
+  const breakoutBodyAtr = Number.isFinite(breakoutOpen) && Number.isFinite(breakoutClose)
+    ? Math.abs(breakoutClose - breakoutOpen) / atr
+    : null;
+  const minRangeAtr = Number(config.strategy.eurusdBreakoutMinRangeAtr || 0.8);
+  const maxRangeAtr = Number(config.strategy.eurusdBreakoutMaxRangeAtr || 3.0);
+  const minBodyAtr = Number(config.strategy.eurusdBreakoutBodyAtrMin || 0.35);
+  const toleranceAtr = Number(config.strategy.eurusdRetestToleranceAtr || 0.15);
+  const maxStretchAtr = Number(config.strategy.eurusdBreakoutMaxStretchAtr || 0.9);
+
+  const details = {
+    ...base,
+    recentRangeHigh,
+    recentRangeLow,
+    rangeSizeAtr: Number.isFinite(rangeSizeAtr) ? Number(rangeSizeAtr.toFixed(2)) : null,
+    breakoutBodyAtr: Number.isFinite(breakoutBodyAtr) ? Number(breakoutBodyAtr.toFixed(2)) : null,
+  };
+
+  if (!(Number.isFinite(recentRangeHigh) && Number.isFinite(recentRangeLow) && Number.isFinite(rangeSizeAtr))) {
+    return { ...details, reason: 'invalid_breakout_range' };
+  }
+
+  if (rangeSizeAtr < minRangeAtr || rangeSizeAtr > maxRangeAtr) {
+    return { ...details, reason: 'breakout_range_invalid' };
+  }
+
+  if (!(Number.isFinite(breakoutClose) && Number.isFinite(breakoutBodyAtr) && breakoutBodyAtr >= minBodyAtr)) {
+    return { ...details, reason: 'breakout_body_too_small' };
+  }
+
+  let breakoutDirection = null;
+  let breakoutLevel = null;
+
+  if (breakoutClose > recentRangeHigh) {
+    breakoutDirection = 'BUY';
+    breakoutLevel = recentRangeHigh;
+  } else if (breakoutClose < recentRangeLow) {
+    breakoutDirection = 'SELL';
+    breakoutLevel = recentRangeLow;
+  }
+
+  if (!breakoutDirection) {
+    return { ...details, reason: 'breakout_not_confirmed' };
+  }
+
+  const retestDistanceAtr = Number.isFinite(latestClose) && Number.isFinite(breakoutLevel)
+    ? Math.abs(latestClose - breakoutLevel) / atr
+    : null;
+  const tolerance = atr * toleranceAtr;
+  const bullishRetest = breakoutDirection === 'BUY'
+    && Number.isFinite(latestLow)
+    && Number.isFinite(latestOpen)
+    && Number.isFinite(latestClose)
+    && latestLow <= breakoutLevel + tolerance
+    && latestClose >= breakoutLevel
+    && latestClose > latestOpen;
+  const bearishRetest = breakoutDirection === 'SELL'
+    && Number.isFinite(latestHigh)
+    && Number.isFinite(latestOpen)
+    && Number.isFinite(latestClose)
+    && latestHigh >= breakoutLevel - tolerance
+    && latestClose <= breakoutLevel
+    && latestClose < latestOpen;
+  const retestConfirmed = bullishRetest || bearishRetest;
+  const breakout = {
+    ...details,
+    breakoutDirection,
+    breakoutLevel,
+    breakoutConfirmed: true,
+    retestConfirmed,
+    retestDistanceAtr: Number.isFinite(retestDistanceAtr) ? Number(retestDistanceAtr.toFixed(2)) : null,
+  };
+
+  if (!retestConfirmed && Number.isFinite(retestDistanceAtr) && retestDistanceAtr > maxStretchAtr) {
+    return { ...breakout, reason: 'breakout_too_stretched' };
+  }
+
+  if (!retestConfirmed) {
+    return { ...breakout, reason: 'breakout_waiting_for_retest' };
+  }
+
+  return { ...breakout, reason: null };
+}
+
 function buildHigherTimeframeBiasContext(bars = [], options = {}) {
   if (!Array.isArray(bars) || bars.length < Math.max(config.strategy.longMa, config.strategy.atrPeriod + 5)) {
     return {
@@ -855,14 +971,84 @@ function evaluateBiasStrategy(bars, options = {}) {
     h1Bias,
     eurUsdEntryConfirmation,
   };
+  const eurUsdBreakout = isEurUsdBias ? analyzeEurUsdBreakoutRetest(bars, atr) : null;
+  const breakoutDiagnostics = eurUsdBreakout ? {
+    recentRangeHigh: eurUsdBreakout.recentRangeHigh,
+    recentRangeLow: eurUsdBreakout.recentRangeLow,
+    rangeSizeAtr: eurUsdBreakout.rangeSizeAtr,
+    breakoutDirection: eurUsdBreakout.breakoutDirection,
+    breakoutLevel: eurUsdBreakout.breakoutLevel,
+    breakoutConfirmed: eurUsdBreakout.breakoutConfirmed,
+    retestConfirmed: eurUsdBreakout.retestConfirmed,
+    breakoutBodyAtr: eurUsdBreakout.breakoutBodyAtr,
+    retestDistanceAtr: eurUsdBreakout.retestDistanceAtr,
+  } : {};
+
+  if (isEurUsdBias
+    && config.strategy.eurusdAllowBreakoutRetest
+    && eurUsdBreakout
+    && eurUsdBreakout.breakoutConfirmed
+  ) {
+    if (!eurUsdBreakout.retestConfirmed) {
+      return buildHoldResult(
+        { ...context, ...biasDiagnostics, ...breakoutDiagnostics },
+        [eurUsdBreakout.reason || 'breakout_waiting_for_retest'],
+        {
+          strategyName: 'bias',
+          setupType: 'hold',
+          biasDirection: eurUsdBreakout.breakoutDirection,
+          biasStrength: 'moderate',
+          regime,
+        },
+      );
+    }
+
+    const breakoutDirection = eurUsdBreakout.breakoutDirection;
+    const breakoutTriggerCandle = {
+      ...triggerCandle,
+      longConfirmed: breakoutDirection === 'BUY',
+      shortConfirmed: breakoutDirection === 'SELL',
+      breakoutRetest: true,
+    };
+    const breakoutSetup = buildSetup(
+      breakoutDirection,
+      latestClose,
+      atr,
+      { ...context, ...biasDiagnostics, ...breakoutDiagnostics, triggerCandle: breakoutTriggerCandle },
+      {
+        strategyName: 'bias',
+        setupType: 'breakout_retest',
+        biasStrength: 'strong',
+        biasDirection: breakoutDirection,
+        regime,
+        confidencePrefix: `EURUSD Breakout Retest | Range ${eurUsdBreakout.rangeSizeAtr}ATR | Retest ${eurUsdBreakout.retestDistanceAtr}ATR`,
+      },
+    );
+
+    if (breakoutSetup.rrTp1 != null && breakoutSetup.rrFinal != null) {
+      return breakoutSetup;
+    }
+
+    return buildHoldResult(
+      { ...context, ...biasDiagnostics, ...breakoutDiagnostics },
+      ['invalid_breakout_retest_rr'],
+      {
+        strategyName: 'bias',
+        setupType: 'hold',
+        biasDirection: breakoutDirection,
+        biasStrength: 'weak',
+        regime,
+      },
+    );
+  }
 
   if (isEurUsdBias && regime === 'RANGING') {
     return buildHoldResult(
-      { ...context, ...biasDiagnostics },
+      { ...context, ...biasDiagnostics, ...breakoutDiagnostics },
       ['eurusd_ranging_blocked'],
       {
         strategyName: 'bias',
-        setupType: 'bias_hold',
+        setupType: 'hold',
         biasDirection: h1Bias.direction === 'HOLD' ? null : h1Bias.direction,
         biasStrength: h1Bias.strength || 'weak',
         regime,
@@ -875,11 +1061,11 @@ function evaluateBiasStrategy(bars, options = {}) {
 
   if (isEurUsdBias && (!h1Bias.valid || h1Bias.direction === 'HOLD')) {
     return buildHoldResult(
-      { ...context, ...biasDiagnostics },
+      { ...context, ...biasDiagnostics, ...breakoutDiagnostics },
       ['weak_h1_bias'],
       {
         strategyName: 'bias',
-        setupType: 'bias_hold',
+        setupType: 'hold',
         biasDirection: null,
         biasStrength: 'weak',
         regime,
@@ -887,9 +1073,12 @@ function evaluateBiasStrategy(bars, options = {}) {
     );
   }
 
-  if (longStructureOk && pullbackOk && momentumLongOk && longH1Aligned && eurUsdEntryConfirmation.longOk) {
+  const trendContinuationRegimeOk = !isEurUsdBias || regime === 'TRENDING';
+
+  if (trendContinuationRegimeOk && longStructureOk && pullbackOk && momentumLongOk && longH1Aligned && eurUsdEntryConfirmation.longOk) {
     return buildSetup('BUY', latestClose, atr, { ...context, ...biasDiagnostics }, {
       strategyName: 'bias',
+      setupType: isEurUsdBias ? 'trend_continuation' : undefined,
       biasStrength: 'strong',
       biasDirection: 'BUY',
       regime,
@@ -897,9 +1086,10 @@ function evaluateBiasStrategy(bars, options = {}) {
     });
   }
 
-  if (shortStructureOk && pullbackOk && momentumShortOk && shortH1Aligned && eurUsdEntryConfirmation.shortOk) {
+  if (trendContinuationRegimeOk && shortStructureOk && pullbackOk && momentumShortOk && shortH1Aligned && eurUsdEntryConfirmation.shortOk) {
     return buildSetup('SELL', latestClose, atr, { ...context, ...biasDiagnostics }, {
       strategyName: 'bias',
+      setupType: isEurUsdBias ? 'trend_continuation' : undefined,
       biasStrength: 'strong',
       biasDirection: 'SELL',
       regime,

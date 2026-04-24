@@ -390,7 +390,17 @@ function resolveEurUsdFailedZoneSize(regime) {
   return resolveEurUsdBiasZoneSize(regime);
 }
 
-function buildEurUsdFailedZoneKey(direction, regime, priceZone) {
+function extractSetupTypeFromNotes(notes) {
+  const match = String(notes || '').match(/(?:^|\s|\|)setupType=([^|\s]+)/i);
+  return match ? match[1] : '';
+}
+
+function normalizeSetupType(value) {
+  const setupType = String(value || '').trim().toLowerCase();
+  return setupType || 'UNKNOWN';
+}
+
+function buildEurUsdFailedZoneKey(direction, regime, priceZone, setupType = 'UNKNOWN') {
   if (!['BUY', 'SELL'].includes(String(direction || '').toUpperCase()) || !(Number.isFinite(priceZone) && priceZone > 0)) {
     return null;
   }
@@ -398,6 +408,7 @@ function buildEurUsdFailedZoneKey(direction, regime, priceZone) {
   return [
     'EURUSD',
     'bias',
+    normalizeSetupType(setupType),
     String(direction || '').toUpperCase(),
     String(regime || '').toUpperCase() || 'UNKNOWN',
     priceZone.toFixed(5),
@@ -475,6 +486,7 @@ function buildEurUsdSetupDebounceKey(normalizedSignal, fallbackPrice) {
   const direction = String(normalizedSignal && normalizedSignal.direction || '').toUpperCase();
   const strategyName = String(normalizedSignal && normalizedSignal.strategyName || '').toLowerCase();
   const biasStrength = String(normalizedSignal && normalizedSignal.biasStrength || '').toLowerCase();
+  const setupType = normalizeSetupType(normalizedSignal && normalizedSignal.setupType);
   const regime = String(normalizedSignal && normalizedSignal.regime || '').toUpperCase();
   const referencePrice = Number(normalizedSignal && normalizedSignal.entry);
   const isRangingBias = strategyName === 'bias' && regime === 'RANGING';
@@ -490,6 +502,7 @@ function buildEurUsdSetupDebounceKey(normalizedSignal, fallbackPrice) {
   return [
     'EURUSD',
     strategyName,
+    setupType,
     direction,
     priceZone.toFixed(5),
     regime || 'UNKNOWN',
@@ -536,6 +549,7 @@ function markSetupSeen(setupKey, debounceMinutes, now = Date.now()) {
 function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = Date.now()) {
   const direction = String(normalizedSignal && normalizedSignal.direction || '').toUpperCase();
   const strategyName = String(normalizedSignal && normalizedSignal.strategyName || '').toLowerCase();
+  const setupType = normalizeSetupType(normalizedSignal && normalizedSignal.setupType);
   const regime = String(normalizedSignal && normalizedSignal.regime || '').toUpperCase();
   const cooldownMinutes = Number(config.safetyControls.eurusdFailedZoneCooldownMinutes || 0);
 
@@ -578,12 +592,13 @@ function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = D
     };
   }
 
-  const zoneKey = buildEurUsdFailedZoneKey(direction, regime, priceZone);
+  const zoneKey = buildEurUsdFailedZoneKey(direction, regime, priceZone, setupType);
   const recentRows = readClosedTradeHistoryRows()
     .filter((row) => String(row.symbol || '').toUpperCase() === 'EURUSD')
     .filter((row) => String(row.source_type || '').toLowerCase() === 'strategy')
     .filter((row) => String(row.strategy_name || '').toLowerCase() === 'bias')
     .filter((row) => String(row.side || '').toUpperCase() === direction)
+    .filter((row) => normalizeSetupType(row.setup_type || extractSetupTypeFromNotes(row.notes)) === setupType)
     .filter((row) => String(row.close_reason || '').toLowerCase() !== 'partial_close');
   let sameThesisAttempts = 0;
   let lossCount = 0;

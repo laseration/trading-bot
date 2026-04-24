@@ -290,6 +290,7 @@ function logClosedTradeRow(trackedSignal, updateEvent) {
     publicly_posted: trackedSignal.postedAt ? 'true' : 'false',
     notes: [
       reconciliation.exitSource || 'reconciliation',
+      trackedSignal.setupType ? `setupType=${trackedSignal.setupType}` : '',
       managementFlags.length > 0 ? `management=${managementFlags.join('|')}` : '',
       updateEvent.rawText || '',
     ].filter(Boolean).join(' | '),

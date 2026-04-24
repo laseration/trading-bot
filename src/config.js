@@ -411,6 +411,13 @@ const config = {
     eurusdBiasRangingPullbackAtrExtraAllowance: Number(process.env.STRATEGY_EURUSD_BIAS_RANGING_PULLBACK_ATR_EXTRA_ALLOWANCE || 0.08),
     eurusdBiasRangingMinEmaSeparationAtr: Number(process.env.STRATEGY_EURUSD_BIAS_RANGING_MIN_EMA_SEPARATION_ATR || 0.12),
     eurusdBiasRangingRsiBuffer: Number(process.env.STRATEGY_EURUSD_BIAS_RANGING_RSI_BUFFER || 5),
+    eurusdBreakoutLookbackBars: Number(process.env.EURUSD_BREAKOUT_LOOKBACK_BARS || 20),
+    eurusdBreakoutBodyAtrMin: Number(process.env.EURUSD_BREAKOUT_BODY_ATR_MIN || 0.35),
+    eurusdRetestToleranceAtr: Number(process.env.EURUSD_RETEST_TOLERANCE_ATR || 0.15),
+    eurusdBreakoutMaxStretchAtr: Number(process.env.EURUSD_BREAKOUT_MAX_STRETCH_ATR || 0.9),
+    eurusdBreakoutMinRangeAtr: Number(process.env.EURUSD_BREAKOUT_MIN_RANGE_ATR || 0.8),
+    eurusdBreakoutMaxRangeAtr: Number(process.env.EURUSD_BREAKOUT_MAX_RANGE_ATR || 3.0),
+    eurusdAllowBreakoutRetest: envFlag("EURUSD_ALLOW_BREAKOUT_RETEST", true),
   },
   risk: {
     riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),

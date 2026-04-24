@@ -78,6 +78,15 @@ function normalizeKey(value) {
   return normalized ? normalized.toUpperCase() : 'UNKNOWN';
 }
 
+function extractSetupType(row = {}) {
+  if (row.setup_type) {
+    return normalizeKey(row.setup_type);
+  }
+
+  const match = String(row.notes || '').match(/(?:^|\s|\|)setupType=([^|\s]+)/i);
+  return match ? normalizeKey(match[1]) : 'UNKNOWN';
+}
+
 function summarizeBy(rows, keySelector) {
   const summary = new Map();
 
@@ -235,6 +244,13 @@ function main() {
     summarizeBy(
       rows,
       (row) => `${normalizeKey(row.symbol)} | ${normalizeKey(row.strategy_name)} | ${normalizeKey(row.side)} | ${normalizeKey(row.regime)}`,
+    ),
+  );
+  printSection(
+    'By Symbol + Strategy + Setup Type',
+    summarizeBy(
+      rows,
+      (row) => `${normalizeKey(row.symbol)} | ${normalizeKey(row.strategy_name)} | ${extractSetupType(row)}`,
     ),
   );
   printSection('By Close Reason', summarizeBy(rows, (row) => normalizeKey(row.close_reason)));
