@@ -386,6 +386,24 @@ function resolveEurUsdBiasZoneSize(regime) {
     : 0.0005;
 }
 
+function resolveEurUsdFailedZoneSize(regime) {
+  return resolveEurUsdBiasZoneSize(regime);
+}
+
+function buildEurUsdFailedZoneKey(direction, regime, priceZone) {
+  if (!['BUY', 'SELL'].includes(String(direction || '').toUpperCase()) || !(Number.isFinite(priceZone) && priceZone > 0)) {
+    return null;
+  }
+
+  return [
+    'EURUSD',
+    'bias',
+    String(direction || '').toUpperCase(),
+    String(regime || '').toUpperCase() || 'UNKNOWN',
+    priceZone.toFixed(5),
+  ].join('|');
+}
+
 function getEurUsdSetupDebounceMinutes(normalizedSignal) {
   const strategyName = String(normalizedSignal && normalizedSignal.strategyName || '').toLowerCase();
   const regime = String(normalizedSignal && normalizedSignal.regime || '').toUpperCase();
@@ -395,6 +413,62 @@ function getEurUsdSetupDebounceMinutes(normalizedSignal) {
   }
 
   return Number(config.safetyControls.eurusdSameSetupDebounceMinutes || 0);
+}
+
+function getEurUsdGlobalLossCooldownState(normalizedSignal = {}, now = Date.now()) {
+  const cooldownMinutes = Number(config.safetyControls.eurusdGlobalLossCooldownMinutes || 0);
+
+  if (
+    String(normalizedSignal.symbol || 'EURUSD').toUpperCase() !== 'EURUSD'
+    || String(normalizedSignal.strategyName || '').toLowerCase() !== 'bias'
+    || !(cooldownMinutes > 0)
+  ) {
+    return {
+      active: false,
+      latestLossAt: null,
+      cooldownEndsAt: null,
+      remainingMs: 0,
+      lastDirection: null,
+      lastRegime: null,
+    };
+  }
+
+  const recentRows = readClosedTradeHistoryRows()
+    .filter((row) => String(row.symbol || '').toUpperCase() === 'EURUSD')
+    .filter((row) => String(row.source_type || '').toLowerCase() === 'strategy')
+    .filter((row) => String(row.strategy_name || '').toLowerCase() === 'bias')
+    .filter((row) => String(row.close_reason || '').toLowerCase() !== 'partial_close');
+
+  for (let index = recentRows.length - 1; index >= 0; index -= 1) {
+    const row = recentRows[index];
+    const pnl = Number(row.pnl);
+    const closedAt = new Date(row.closed_at || row.exit_time || 0).getTime();
+
+    if (!Number.isFinite(pnl) || pnl >= 0 || !Number.isFinite(closedAt)) {
+      continue;
+    }
+
+    const cooldownEndsAtMs = closedAt + cooldownMinutes * 60 * 1000;
+    const remainingMs = cooldownEndsAtMs - now;
+
+    return {
+      active: remainingMs > 0,
+      latestLossAt: new Date(closedAt).toISOString(),
+      cooldownEndsAt: new Date(cooldownEndsAtMs).toISOString(),
+      remainingMs: Math.max(0, remainingMs),
+      lastDirection: String(row.side || '').toUpperCase() || null,
+      lastRegime: String(row.regime || '').toUpperCase() || null,
+    };
+  }
+
+  return {
+    active: false,
+    latestLossAt: null,
+    cooldownEndsAt: null,
+    remainingMs: 0,
+    lastDirection: null,
+    lastRegime: null,
+  };
 }
 
 function buildEurUsdSetupDebounceKey(normalizedSignal, fallbackPrice) {
@@ -463,11 +537,7 @@ function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = D
   const direction = String(normalizedSignal && normalizedSignal.direction || '').toUpperCase();
   const strategyName = String(normalizedSignal && normalizedSignal.strategyName || '').toLowerCase();
   const regime = String(normalizedSignal && normalizedSignal.regime || '').toUpperCase();
-  const cooldownMinutes = Number(
-    config.safetyControls.eurusdFailedZoneCooldownMinutes
-    || config.safetyControls.eurusdRangingBiasLossCooldownMinutes
-    || 0
-  );
+  const cooldownMinutes = Number(config.safetyControls.eurusdFailedZoneCooldownMinutes || 0);
 
   if (
     String(normalizedSignal && normalizedSignal.symbol || 'EURUSD').toUpperCase() !== 'EURUSD'
@@ -478,30 +548,37 @@ function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = D
     return {
       active: false,
       sameThesisAttempts: 0,
+      lossCount: 0,
       latestLossAt: null,
       cooldownEndsAt: null,
       remainingMs: 0,
       priceZone: null,
+      regime,
+      zoneKey: null,
     };
   }
 
   const referencePrice = Number(normalizedSignal && normalizedSignal.entry);
   const priceZone = roundToPriceZone(
     Number.isFinite(referencePrice) ? referencePrice : Number(fallbackPrice),
-    resolveEurUsdBiasZoneSize(regime),
+    resolveEurUsdFailedZoneSize(regime),
   );
 
   if (!priceZone) {
     return {
       active: false,
       sameThesisAttempts: 0,
+      lossCount: 0,
       latestLossAt: null,
       cooldownEndsAt: null,
       remainingMs: 0,
       priceZone: null,
+      regime,
+      zoneKey: null,
     };
   }
 
+  const zoneKey = buildEurUsdFailedZoneKey(direction, regime, priceZone);
   const recentRows = readClosedTradeHistoryRows()
     .filter((row) => String(row.symbol || '').toUpperCase() === 'EURUSD')
     .filter((row) => String(row.source_type || '').toLowerCase() === 'strategy')
@@ -509,6 +586,10 @@ function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = D
     .filter((row) => String(row.side || '').toUpperCase() === direction)
     .filter((row) => String(row.close_reason || '').toLowerCase() !== 'partial_close');
   let sameThesisAttempts = 0;
+  let lossCount = 0;
+  let latestLossAtMs = null;
+  const escalationEnabled = config.safetyControls.eurusdFailedZoneEscalationEnabled === true;
+  const maxCooldownMinutes = 24 * 60;
 
   for (let index = recentRows.length - 1; index >= 0; index -= 1) {
     const row = recentRows[index];
@@ -518,12 +599,17 @@ function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = D
       continue;
     }
 
-    if (now - closedAt > cooldownMinutes * 60 * 1000) {
+    if (now - closedAt > maxCooldownMinutes * 60 * 1000) {
       break;
     }
 
+    const rowRegime = String(row.regime || '').toUpperCase();
+    if (regime && rowRegime && rowRegime !== regime) {
+      continue;
+    }
+
     const rowEntry = Number(row.entry_price);
-    const rowZone = roundToPriceZone(rowEntry, resolveEurUsdBiasZoneSize(row.regime || regime));
+    const rowZone = roundToPriceZone(rowEntry, resolveEurUsdFailedZoneSize(row.regime || regime));
 
     if (rowZone !== priceZone) {
       continue;
@@ -533,27 +619,45 @@ function getRecentEurUsdFailedZoneState(normalizedSignal, fallbackPrice, now = D
     const pnl = Number(row.pnl);
 
     if (Number.isFinite(pnl) && pnl < 0) {
-      const cooldownEndsAtMs = closedAt + cooldownMinutes * 60 * 1000;
-      const remainingMs = cooldownEndsAtMs - now;
-
-      return {
-        active: remainingMs > 0,
-        sameThesisAttempts,
-        latestLossAt: new Date(closedAt).toISOString(),
-        cooldownEndsAt: new Date(cooldownEndsAtMs).toISOString(),
-        remainingMs: Math.max(0, remainingMs),
-        priceZone,
-      };
+      lossCount += 1;
+      latestLossAtMs = latestLossAtMs || closedAt;
     }
+  }
+
+  const cooldownMultiplier = !escalationEnabled || lossCount <= 1
+    ? 1
+    : lossCount === 2
+      ? 2
+      : 8;
+  const effectiveCooldownMinutes = Math.min(maxCooldownMinutes, cooldownMinutes * cooldownMultiplier);
+
+  if (latestLossAtMs != null) {
+    const cooldownEndsAtMs = latestLossAtMs + effectiveCooldownMinutes * 60 * 1000;
+    const remainingMs = cooldownEndsAtMs - now;
+
+    return {
+      active: remainingMs > 0,
+      sameThesisAttempts,
+      lossCount,
+      latestLossAt: new Date(latestLossAtMs).toISOString(),
+      cooldownEndsAt: new Date(cooldownEndsAtMs).toISOString(),
+      remainingMs: Math.max(0, remainingMs),
+      priceZone,
+      regime,
+      zoneKey,
+    };
   }
 
   return {
     active: false,
     sameThesisAttempts,
+    lossCount,
     latestLossAt: null,
     cooldownEndsAt: null,
     remainingMs: 0,
     priceZone,
+    regime,
+    zoneKey,
   };
 }
 
@@ -681,6 +785,9 @@ async function prepareBotRun(symbolOrProfile, options = {}) {
         latestLossAt: recentFailedZoneState.latestLossAt,
         remainingMs: recentFailedZoneState.remainingMs,
         priceZone: recentFailedZoneState.priceZone,
+        regime: recentFailedZoneState.regime,
+        zoneKey: recentFailedZoneState.zoneKey,
+        lossCount: recentFailedZoneState.lossCount,
       } : normalizedSignal.recentFailedZone || null,
     };
   }
@@ -795,6 +902,24 @@ async function runBot(symbolOrProfile, options = {}) {
   let consumedSetupKey = null;
 
   if (isEurUsdStrategyEntry) {
+    const globalLossCooldownState = getEurUsdGlobalLossCooldownState(normalizedSignal, currentTimeMs);
+    const currentRegime = String(normalizedSignal.regime || '').toUpperCase();
+    const directionChangedIntoTrending = globalLossCooldownState.lastDirection
+      && String(signal || '').toUpperCase() !== globalLossCooldownState.lastDirection
+      && currentRegime === 'TRENDING';
+
+    if (globalLossCooldownState.active && !directionChangedIntoTrending) {
+      log(
+        `[${symbol}] Blocking strategy entry: global_loss_cooldown `
+        + `symbol=${symbol} direction=${signal} regime=${currentRegime || 'UNKNOWN'} `
+        + `latestLossAt=${globalLossCooldownState.latestLossAt || 'na'} `
+        + `cooldownEndsAt=${globalLossCooldownState.cooldownEndsAt || 'na'}`,
+      );
+      result.blocked = true;
+      result.action = 'global_loss_cooldown';
+      return result;
+    }
+
     const lossStreakState = getEurUsdLossStreakState(currentTimeMs);
 
     if (lossStreakState.active) {
@@ -812,11 +937,12 @@ async function runBot(symbolOrProfile, options = {}) {
 
     if (recentFailedZoneState.active) {
       log(
-        `[${symbol}] Blocking strategy entry: recent_failed_zone_block `
-        + `(direction=${signal} zone=${recentFailedZoneState.priceZone?.toFixed(5) || 'na'} `
-        + `sameThesisAttempts=${recentFailedZoneState.sameThesisAttempts} `
+        `[${symbol}] recent_failed_zone_block `
+        + `symbol=${symbol} direction=${signal} regime=${recentFailedZoneState.regime || currentRegime || 'UNKNOWN'} `
+        + `zone=${recentFailedZoneState.priceZone?.toFixed(5) || 'na'} `
         + `latestLossAt=${recentFailedZoneState.latestLossAt || 'na'} `
-        + `cooldownEndsAt=${recentFailedZoneState.cooldownEndsAt || 'na'})`,
+        + `cooldownEndsAt=${recentFailedZoneState.cooldownEndsAt || 'na'} `
+        + `lossCount=${recentFailedZoneState.lossCount || 0}`,
       );
       result.blocked = true;
       result.action = 'recent_failed_zone_block';

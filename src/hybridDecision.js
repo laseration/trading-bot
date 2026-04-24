@@ -238,21 +238,19 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
       ? Number.isFinite(rsi) && rsi <= (config.strategy.biasRsiShortMax - 7)
       : false;
   const hasSignalConfirmation = signalConfluence.count > 0 && signalConfluence.consensusDirection === direction;
-  const canPromoteEurUsdSessionBias = symbol === 'EURUSD'
+  const isEurUsdBias = symbol === 'EURUSD'
     && sourceType === 'STRATEGY'
-    && strategyName === 'bias'
+    && strategyName === 'bias';
+  const canPromoteEurUsdSessionBias = isEurUsdBias
     && sessionMatch
     && isPreferredEurUsdSession
     && biasStrength === 'strong'
     && cleanEmaAlignment
     && trendAligned;
-  const isEurUsdRangingBias = symbol === 'EURUSD'
-    && sourceType === 'STRATEGY'
-    && strategyName === 'bias'
-    && marketContext.regime === 'RANGING';
-  const requiresEurUsdBiasHardening = symbol === 'EURUSD'
-    && sourceType === 'STRATEGY'
-    && strategyName === 'bias';
+  const isEurUsdRangingBias = isEurUsdBias && marketContext.regime === 'RANGING';
+  const isEurUsdUnstableBias = isEurUsdBias && marketContext.regime === 'UNSTABLE';
+  const isEurUsdOverrideRegime = isEurUsdBias && ['RANGING', 'UNSTABLE'].includes(marketContext.regime);
+  const requiresEurUsdBiasHardening = isEurUsdBias;
 
   const rrTp1Ok = rrTp1 == null || rrTp1 >= settings.minTp1RiskReward;
   score += addCheck(checks, 'rr_tp1', rrTp1Ok, 8, rrTp1 == null ? 'n/a' : rrTp1.toFixed(2));
@@ -268,11 +266,18 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     reasons.push(`final rr ${rrFinal.toFixed(2)} below ${settings.minFinalRiskReward}`);
   }
 
-  if (isEurUsdRangingBias) {
-    checks.push({ name: 'ranging_bias_reject', passed: false, score: -40, note: marketContext.regime });
-    score -= 40;
-    blocks.push('ranging_regime_block');
-    reasons.push('ranging_regime_block');
+  if (isEurUsdRangingBias && !config.safetyControls.eurusdBiasAllowRanging) {
+    checks.push({ name: 'eurusd_bias_regime_gate', passed: false, score: -100, note: 'RANGING' });
+    score -= 100;
+    blocks.push('eurusd_bias_ranging_block');
+    reasons.push('eurusd_bias_ranging_block');
+  }
+
+  if (isEurUsdUnstableBias && !config.safetyControls.eurusdBiasAllowUnstable) {
+    checks.push({ name: 'eurusd_bias_regime_gate', passed: false, score: -100, note: 'UNSTABLE' });
+    score -= 100;
+    blocks.push('eurusd_bias_unstable_block');
+    reasons.push('eurusd_bias_unstable_block');
   }
 
   if (requiresEurUsdBiasHardening && !h1BiasAligned) {
@@ -320,6 +325,11 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
       note: `${sameThesisAttemptCount} recent attempt(s)`,
     });
     score -= thesisPenalty;
+
+    if (isEurUsdOverrideRegime) {
+      blocks.push('same_thesis_retry_block');
+      reasons.push('same_thesis_retry_block');
+    }
   }
 
   if (marketContext.regime === 'UNSTABLE') {
@@ -421,13 +431,19 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     : settings.minApproveScore;
   let decision = 'REJECT';
 
+  const forceReject = blocks.includes('regime_dead')
+    || blocks.includes('eurusd_bias_ranging_block')
+    || blocks.includes('eurusd_bias_unstable_block')
+    || (isEurUsdOverrideRegime && blocks.length > 0);
+
   if (
+    !forceReject &&
     blocks.length === 0
     && cappedScore >= effectiveApproveScore
     && (sourceType !== 'TELEGRAM' || settings.allowTelegramTrigger)
   ) {
     decision = 'APPROVE';
-  } else if (cappedScore >= settings.minWatchScore) {
+  } else if (!forceReject && cappedScore >= settings.minWatchScore) {
     decision = config.hybrid.watchDecision === 'REJECT' ? 'REJECT' : 'WATCH';
   }
 

@@ -859,7 +859,7 @@ function evaluateBiasStrategy(bars, options = {}) {
   if (isEurUsdBias && regime === 'RANGING') {
     return buildHoldResult(
       { ...context, ...biasDiagnostics },
-      ['ranging_regime_block'],
+      ['eurusd_ranging_blocked'],
       {
         strategyName: 'bias',
         setupType: 'bias_hold',

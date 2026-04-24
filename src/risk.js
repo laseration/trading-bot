@@ -68,18 +68,7 @@ function calculatePositionSize(equity, price, options = {}) {
     return 0;
   }
 
-  const fallbackPrice = Number(price);
-
-  if (!(Number.isFinite(fallbackPrice) && fallbackPrice > 0)) {
-    return 0;
-  }
-
-  const rawSize = Math.floor(riskAmount / fallbackPrice);
-  return normalizePositionSize(rawSize, {
-    ...options,
-    minPositionSize: Math.max(1, Number(options.minPositionSize ?? config.risk.minPositionSize)),
-    positionSizeStep: Math.max(1, Number(options.positionSizeStep ?? 1)),
-  });
+  return 0;
 }
 
 module.exports = {

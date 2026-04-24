@@ -1,6 +1,6 @@
 # Trading Bot
 
-This repository is a small Node.js trading bot prototype with a live loop, Telegram-driven MT5 execution, branded Telegram publishing, and a simple backtest entrypoint.
+This repository is a Node.js trading bot with MT5-backed execution, hybrid strategy gating, Telegram ingestion/publishing, reconciliation, and log-driven analysis tooling.
 
 ## Current Architecture
 
@@ -11,7 +11,7 @@ This repository is a small Node.js trading bot prototype with a live loop, Teleg
 - `src/signals/` tracks published signals plus later TP / SL / closed updates for reporting.
 - `src/images/` generates dark branded PNG cards for signals, results, and weekly reports.
 - `src/config.js` holds runtime settings such as interval, moving-average periods, risk settings, paper trading mode, and commission.
-- `src/strategy.js` generates `BUY`, `SELL`, or `HOLD` from moving-average crossovers.
+- `src/strategy.js` generates `BUY`, `SELL`, or `HOLD` from the configured strategy set and feeds the hybrid approval layer.
 - `src/risk.js` calculates position size from equity, price, and risk limits.
 - `src/broker.js` is an in-memory paper broker that tracks cash, position, and equity.
 - `src/dataFeed.js` supplies mock price data for both the live loop and backtests.
@@ -80,7 +80,13 @@ Runtime files are written under `logs/`:
 - `logs/equity-history.csv`
 - `logs/signal-results.json`
 
-These files are ignored by Git so local runs do not create noisy diffs.
+These files are ignored by Git so local runs do not create noisy diffs. Force-add only selected log files when you intentionally want to share analysis snapshots.
+
+## Strategy Safety Notes
+
+- `EURUSD` bias is `TRENDING`-only by default.
+- `RANGING` and `UNSTABLE` EURUSD bias entries are blocked unless explicitly enabled by env.
+- If stop distance is missing, the bot sizes the trade at `0` and skips execution.
 
 ## Notes
 
