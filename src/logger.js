@@ -3,11 +3,94 @@ const path = require("path");
 
 const logFilePath = path.join(__dirname, "..", "logs", "bot.log");
 const tradeHistoryPath = path.join(__dirname, "..", "logs", "trade-history.csv");
+const tradeEventsPath = path.join(__dirname, "..", "logs", "trade-events.csv");
 const equityHistoryPath = path.join(__dirname, "..", "logs", "equity-history.csv");
-const tradeHistoryHeader = "timestamp,symbol,side,qty,price,pnl,cash,position,equity";
+const decisionHistoryPath = path.join(__dirname, "..", "logs", "decision-history.jsonl");
+const tradeAttributionPath = path.join(__dirname, "..", "logs", "trade-attribution.jsonl");
+const managementAnalysisPath = path.join(__dirname, "..", "logs", "management-effectiveness.jsonl");
+const eurusdBiasDiagnosticsPath = path.join(__dirname, "..", "logs", "eurusd-bias-diagnostics.jsonl");
+const tradeHistoryHeader = [
+  "closed_at",
+  "symbol",
+  "side",
+  "entry_price",
+  "exit_price",
+  "qty",
+  "pnl",
+  "pnl_currency",
+  "trade_duration_seconds",
+  "entry_time",
+  "exit_time",
+  "source_type",
+  "strategy_name",
+  "risk_label",
+  "approval_score",
+  "ticket",
+  "position_id",
+  "close_event_key",
+  "close_reason",
+  "stop_loss",
+  "take_profit",
+  "max_favorable_excursion",
+  "max_adverse_excursion",
+  "session",
+  "regime",
+  "publicly_posted",
+  "notes",
+].join(",");
+const tradeEventsHeader = "timestamp,symbol,event_type,side,qty,price,position,position_id,order_id,status,notes";
 const equityHistoryHeader = "timestamp,symbol,cash,position,equity";
 
-function ensureCsvHeader(filePath, expectedHeader, migrateRow) {
+function csvEscape(value) {
+  if (value == null) {
+    return "";
+  }
+
+  const stringValue = String(value);
+
+  if (!/[",\r\n]/.test(stringValue)) {
+    return stringValue;
+  }
+
+  return `"${stringValue.replace(/"/g, '""')}"`;
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < String(line || "").length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function ensureCsvHeader(filePath, expectedHeader) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
   if (!fs.existsSync(filePath)) {
     fs.appendFileSync(filePath, `${expectedHeader}\n`);
     return;
@@ -21,56 +104,72 @@ function ensureCsvHeader(filePath, expectedHeader, migrateRow) {
     return;
   }
 
-  const migratedLines = lines
-    .slice(1)
-    .filter((line) => line.trim() !== "")
-    .map(migrateRow);
+  const backupPath = `${filePath.replace(/\.csv$/i, "")}.legacy-${Date.now()}.csv`;
+  fs.renameSync(filePath, backupPath);
+  fs.writeFileSync(filePath, `${expectedHeader}\n`);
+}
 
-  const nextContents = [expectedHeader, ...migratedLines].join("\n");
-  fs.writeFileSync(filePath, `${nextContents}\n`);
+function appendCsvRow(filePath, expectedHeader, columns, row) {
+  ensureCsvHeader(filePath, expectedHeader);
+  const line = columns.map((column) => csvEscape(row[column])).join(",");
+  fs.appendFileSync(filePath, `${line}\n`);
+}
+
+function hasCsvRowWithValue(filePath, columnName, value) {
+  if (value == null || value === "" || !fs.existsSync(filePath)) {
+    return false;
+  }
+
+  const contents = fs.readFileSync(filePath, "utf8").trim();
+
+  if (!contents) {
+    return false;
+  }
+
+  const lines = contents.split(/\r?\n/).filter(Boolean);
+  const headers = parseCsvLine(lines[0]);
+  const columnIndex = headers.indexOf(columnName);
+
+  if (columnIndex < 0) {
+    return false;
+  }
+
+  return lines.slice(1).some((line) => parseCsvLine(line)[columnIndex] === String(value));
 }
 
 function logTrade(trade) {
-  ensureCsvHeader(tradeHistoryPath, tradeHistoryHeader, (line) => {
-    const values = line.split(",");
-    values.splice(1, 0, "");
-    return values.join(",");
-  });
+  if (hasCsvRowWithValue(tradeHistoryPath, "close_event_key", trade.close_event_key)) {
+    return;
+  }
 
-  const line = [
-    trade.timestamp,
-    trade.symbol ?? "",
-    trade.side,
-    trade.qty,
-    trade.price,
-    trade.pnl ?? "",
-    trade.cash,
-    trade.position,
-    trade.equity,
-  ].join(",");
+  appendCsvRow(
+    tradeHistoryPath,
+    tradeHistoryHeader,
+    tradeHistoryHeader.split(","),
+    trade,
+  );
+}
 
-  fs.appendFileSync(tradeHistoryPath, line + "\n");
+function logTradeEvent(event) {
+  appendCsvRow(
+    tradeEventsPath,
+    tradeEventsHeader,
+    tradeEventsHeader.split(","),
+    event,
+  );
 }
 
 function logEquity(snapshot) {
-  ensureCsvHeader(equityHistoryPath, equityHistoryHeader, (line) => {
-    const values = line.split(",");
-    values.splice(1, 0, "");
-    return values.join(",");
-  });
-
-  const line = [
-    snapshot.timestamp,
-    snapshot.symbol ?? "",
-    snapshot.cash,
-    snapshot.position,
-    snapshot.equity,
-  ].join(",");
-
-  fs.appendFileSync(equityHistoryPath, line + "\n");
+  appendCsvRow(
+    equityHistoryPath,
+    equityHistoryHeader,
+    equityHistoryHeader.split(","),
+    snapshot,
+  );
 }
 
 function log(message) {
+  fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
   const timestamp = new Date().toISOString();
   const line = `[${timestamp}] ${message}`;
 
@@ -78,4 +177,38 @@ function log(message) {
   fs.appendFileSync(logFilePath, line + "\n");
 }
 
-module.exports = { log, logTrade, logEquity };
+function logDecision(decision) {
+  fs.mkdirSync(path.dirname(decisionHistoryPath), { recursive: true });
+  const payload = {
+    timestamp: new Date().toISOString(),
+    ...decision,
+  };
+
+  fs.appendFileSync(decisionHistoryPath, `${JSON.stringify(payload)}\n`);
+}
+
+function logTradeAttribution(entry) {
+  fs.mkdirSync(path.dirname(tradeAttributionPath), { recursive: true });
+  fs.appendFileSync(tradeAttributionPath, `${JSON.stringify({ timestamp: new Date().toISOString(), ...entry })}\n`);
+}
+
+function logManagementAnalysis(entry) {
+  fs.mkdirSync(path.dirname(managementAnalysisPath), { recursive: true });
+  fs.appendFileSync(managementAnalysisPath, `${JSON.stringify({ timestamp: new Date().toISOString(), ...entry })}\n`);
+}
+
+function logEurUsdBiasDiagnostics(entry) {
+  fs.mkdirSync(path.dirname(eurusdBiasDiagnosticsPath), { recursive: true });
+  fs.appendFileSync(eurusdBiasDiagnosticsPath, `${JSON.stringify({ timestamp: new Date().toISOString(), ...entry })}\n`);
+}
+
+module.exports = {
+  log,
+  logTrade,
+  logTradeEvent,
+  logEquity,
+  logDecision,
+  logTradeAttribution,
+  logManagementAnalysis,
+  logEurUsdBiasDiagnostics,
+};

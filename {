@@ -1,0 +1,1 @@
+const broker = require('./src/broker'); const { getLatestMt5Quote, getMt5AccountState } = require('./src/mt5Bridge'); (async () = const symbol='EURUSD'; const beforeQuote = await getLatestMt5Quote(symbol); const before = await getMt5AccountState(symbol, beforeQuote.price); const qty = Math.abs(Number(before.position) 

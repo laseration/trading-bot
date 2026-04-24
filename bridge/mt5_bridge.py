@@ -1,29 +1,180 @@
 #!/usr/bin/env python3
 import atexit
+import errno
 import json
 import os
-import threading
+import re
+import socket
+import sys
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-try:
-    import MetaTrader5 as mt5
-except ImportError:
-    mt5 = None
+
+REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+INITIAL_ENV_KEYS = set(os.environ.keys())
+RUNTIME_DIR = os.path.join(REPO_ROOT, "runtime")
+LOCK_PATH = os.path.join(RUNTIME_DIR, "mt5-bridge.lock.json")
+
+
+def load_env_file(file_path, override=True):
+    if not os.path.exists(file_path):
+        return
+
+    with open(file_path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+
+            if not key:
+                continue
+
+            if not override and key in os.environ:
+                continue
+
+            if override and key in INITIAL_ENV_KEYS and key in os.environ:
+                continue
+
+            value = value.strip()
+
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+
+            os.environ[key] = value
+
+
+def resolve_env_mode():
+    return str(os.getenv("TRADING_ENV") or os.getenv("BOT_ENV") or "").strip().lower()
+
+
+load_env_file(os.path.join(REPO_ROOT, ".env.shared"))
+env_mode = resolve_env_mode()
+
+if env_mode:
+    load_env_file(os.path.join(REPO_ROOT, f".env.{env_mode}"))
+else:
+    load_env_file(os.path.join(REPO_ROOT, ".env"))
+
+
+def default_native_bridge_dir():
+    appdata = os.getenv("APPDATA", "").strip()
+
+    if appdata:
+        return os.path.join(
+            appdata,
+            "MetaQuotes",
+            "Terminal",
+            "Common",
+            "Files",
+            "trading-bot-bridge",
+        )
+
+    return os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "runtime",
+        "mt5-native-bridge",
+    )
+
+
+def is_process_alive(pid):
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_lock():
+    os.makedirs(RUNTIME_DIR, exist_ok=True)
+
+    payload = json.dumps({
+        "pid": os.getpid(),
+        "startedAt": time.time(),
+        "env": resolve_env_mode(),
+    }, indent=2).encode("utf-8")
+
+    while True:
+        try:
+            fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "wb") as lock_file:
+                lock_file.write(payload)
+            return
+        except FileExistsError:
+            try:
+                with open(LOCK_PATH, "r", encoding="utf-8") as lock_file:
+                    existing = json.load(lock_file)
+            except Exception:
+                existing = None
+
+            if existing and existing.get("pid") != os.getpid() and is_process_alive(int(existing.get("pid", 0))):
+                raise RuntimeError(f"Another MT5 bridge instance is already running (pid {existing['pid']})")
+
+            try:
+                os.remove(LOCK_PATH)
+            except OSError:
+                time.sleep(0.1)
+
+
+def safe_remove(path, retries=10, delay_ms=50):
+    for attempt in range(retries):
+        try:
+            os.remove(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            if attempt == retries - 1:
+                return False
+            time.sleep(delay_ms / 1000)
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EPERM}:
+                if attempt == retries - 1:
+                    return False
+                time.sleep(delay_ms / 1000)
+                continue
+            raise
+
+    return False
+
+
+def release_lock():
+    try:
+        if not os.path.exists(LOCK_PATH):
+            return
+
+        with open(LOCK_PATH, "r", encoding="utf-8") as lock_file:
+            existing = json.load(lock_file)
+
+        if not existing or int(existing.get("pid", 0)) == os.getpid():
+            os.remove(LOCK_PATH)
+    except Exception:
+        return
 
 
 HOST = os.getenv("MT5_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.getenv("MT5_BRIDGE_PORT", "5001"))
-TIMEOUT_MS = int(os.getenv("MT5_TIMEOUT_MS", "60000"))
-TERMINAL_PATH = os.getenv("MT5_TERMINAL_PATH", "").strip()
-LOGIN = os.getenv("MT5_LOGIN", "").strip()
-PASSWORD = os.getenv("MT5_PASSWORD", "").strip()
-SERVER = os.getenv("MT5_SERVER", "").strip()
-PORTABLE = os.getenv("MT5_PORTABLE", "false").lower() == "true"
-DEFAULT_DEVIATION = int(os.getenv("MT5_DEVIATION_POINTS", "20"))
-DEFAULT_MAGIC = int(os.getenv("MT5_MAGIC", "5151001"))
-COMMENT_PREFIX = os.getenv("MT5_COMMENT_PREFIX", "trading-bot")
-SUCCESS_SEND_RETCODES = set()
-MT5_LOCK = threading.Lock()
+TIMEOUT_MS = int(os.getenv("MT5_BRIDGE_TIMEOUT_MS", "5000"))
+POLL_INTERVAL_MS = int(os.getenv("MT5_NATIVE_BRIDGE_POLL_MS", "50"))
+HEARTBEAT_STALE_MS = int(os.getenv("MT5_NATIVE_BRIDGE_HEARTBEAT_STALE_MS", "5000"))
+BRIDGE_ROOT = os.path.abspath(
+    os.path.expandvars(
+        os.path.expanduser(
+            os.getenv("MT5_NATIVE_BRIDGE_DIR", default_native_bridge_dir()),
+        ),
+    ),
+)
+REQUESTS_DIR = os.path.join(BRIDGE_ROOT, "requests")
+RESPONSES_DIR = os.path.join(BRIDGE_ROOT, "responses")
+STATUS_DIR = os.path.join(BRIDGE_ROOT, "status")
+HEARTBEAT_PATH = os.path.join(STATUS_DIR, "heartbeat.txt")
 
 
 class BridgeError(Exception):
@@ -34,441 +185,416 @@ class BridgeError(Exception):
         self.details = details
 
 
-def mt5_constants():
-    if mt5 is None:
-        return {}
-
-    return {
-        "TRADE_RETCODE_DONE": getattr(mt5, "TRADE_RETCODE_DONE", None),
-        "TRADE_RETCODE_DONE_PARTIAL": getattr(mt5, "TRADE_RETCODE_DONE_PARTIAL", None),
-        "TRADE_RETCODE_PLACED": getattr(mt5, "TRADE_RETCODE_PLACED", None),
-        "POSITION_TYPE_BUY": getattr(mt5, "POSITION_TYPE_BUY", 0),
-        "POSITION_TYPE_SELL": getattr(mt5, "POSITION_TYPE_SELL", 1),
-        "ORDER_TYPE_BUY": getattr(mt5, "ORDER_TYPE_BUY", 0),
-        "ORDER_TYPE_SELL": getattr(mt5, "ORDER_TYPE_SELL", 1),
-        "ORDER_FILLING_FOK": getattr(mt5, "ORDER_FILLING_FOK", 0),
-        "ORDER_FILLING_IOC": getattr(mt5, "ORDER_FILLING_IOC", 1),
-        "ORDER_FILLING_RETURN": getattr(mt5, "ORDER_FILLING_RETURN", 2),
-        "ORDER_TIME_GTC": getattr(mt5, "ORDER_TIME_GTC", 0),
-        "TRADE_ACTION_DEAL": getattr(mt5, "TRADE_ACTION_DEAL", 1),
-    }
+def ensure_dirs():
+    os.makedirs(REQUESTS_DIR, exist_ok=True)
+    os.makedirs(RESPONSES_DIR, exist_ok=True)
+    os.makedirs(STATUS_DIR, exist_ok=True)
 
 
-CONSTANTS = mt5_constants()
-
-SUCCESS_SEND_RETCODES = {
-    CONSTANTS.get("TRADE_RETCODE_DONE"),
-    CONSTANTS.get("TRADE_RETCODE_DONE_PARTIAL"),
-    CONSTANTS.get("TRADE_RETCODE_PLACED"),
-}
+def escape_value(value):
+    text = "" if value is None else str(value)
+    return text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
 
 
-def to_plain(value):
-    if hasattr(value, "_asdict"):
-        return {key: to_plain(item) for key, item in value._asdict().items()}
+def unescape_value(value):
+    result = []
+    index = 0
 
-    if isinstance(value, dict):
-        return {key: to_plain(item) for key, item in value.items()}
+    while index < len(value):
+        char = value[index]
 
-    if isinstance(value, (list, tuple)):
-        return [to_plain(item) for item in value]
+        if char == "\\" and index + 1 < len(value):
+            next_char = value[index + 1]
+
+            if next_char == "n":
+                result.append("\n")
+                index += 2
+                continue
+
+            if next_char == "r":
+                result.append("\r")
+                index += 2
+                continue
+
+            if next_char == "\\":
+                result.append("\\")
+                index += 2
+                continue
+
+        result.append(char)
+        index += 1
+
+    return "".join(result)
+
+
+def write_key_values(path, fields):
+    with open(path, "w", encoding="utf-8", newline="\n") as output_file:
+        for key, value in fields.items():
+            output_file.write(f"{key}={escape_value(value)}\n")
+
+
+def parse_key_values(text):
+    values = {}
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip().lstrip("\ufeff")
+
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        values[key.strip()] = unescape_value(value)
+
+    return values
+
+
+def read_key_values(path):
+    if not os.path.exists(path):
+        return None
+
+    retries = 5
+    delay_ms = 50
+
+    for attempt in range(retries):
+        try:
+            with open(path, "r", encoding="utf-8") as input_file:
+                return parse_key_values(input_file.read())
+        except FileNotFoundError:
+            return None
+        except PermissionError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay_ms / 1000)
+        except OSError as exc:
+            if exc.errno not in {errno.EACCES, errno.EPERM} or attempt == retries - 1:
+                raise
+            time.sleep(delay_ms / 1000)
+
+    return None
+
+
+def try_read_key_values(path):
+    try:
+        return read_key_values(path)
+    except FileNotFoundError:
+        return None
+    except PermissionError:
+        return None
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EPERM}:
+            return None
+        raise
+
+
+INT_PATTERN = re.compile(r"^-?\d+$")
+FLOAT_PATTERN = re.compile(r"^-?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][-+]?\d+)?$")
+
+
+def coerce_value(value):
+    if not isinstance(value, str):
+        return value
+
+    lowered = value.lower()
+
+    if lowered == "true":
+        return True
+
+    if lowered == "false":
+        return False
+
+    if INT_PATTERN.fullmatch(value):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+
+    if FLOAT_PATTERN.fullmatch(value):
+        try:
+            return float(value)
+        except ValueError:
+            return value
 
     return value
 
 
-def last_error():
-    if mt5 is None:
-      return {"message": "MetaTrader5 package is not installed"}
-
-    code, message = mt5.last_error()
-    return {"code": code, "message": message}
+def normalize_values(payload):
+    return {key: coerce_value(value) for key, value in payload.items()}
 
 
-def require_mt5():
-    if mt5 is None:
-        raise BridgeError(
-            "MetaTrader5 package is not installed in this Python environment",
-            status=500,
-        )
+def read_heartbeat():
+    heartbeat = read_key_values(HEARTBEAT_PATH)
+
+    if not heartbeat:
+        return None
+
+    heartbeat = normalize_values(heartbeat)
+    timestamp_epoch = heartbeat.get("timestampEpoch")
+
+    if timestamp_epoch is None:
+        timestamp_epoch = os.path.getmtime(HEARTBEAT_PATH)
+        heartbeat["timestampEpoch"] = timestamp_epoch
+
+    heartbeat["ageMs"] = max(
+        0,
+        int((time.time() - float(timestamp_epoch)) * 1000),
+    )
+    return heartbeat
 
 
-def ensure_connection():
-    require_mt5()
-
-    terminal_info = mt5.terminal_info()
-    account_info = mt5.account_info()
-
-    if terminal_info is not None and account_info is not None:
-        return
-
-    kwargs = {
-        "timeout": TIMEOUT_MS,
-        "portable": PORTABLE,
+def readiness_details():
+    heartbeat = read_heartbeat()
+    return {
+        "bridgeRoot": BRIDGE_ROOT,
+        "requestsDir": REQUESTS_DIR,
+        "responsesDir": RESPONSES_DIR,
+        "statusDir": STATUS_DIR,
+        "heartbeatPath": HEARTBEAT_PATH,
+        "heartbeat": heartbeat,
     }
 
-    if LOGIN:
-        kwargs["login"] = int(LOGIN)
-    if PASSWORD:
-        kwargs["password"] = PASSWORD
-    if SERVER:
-        kwargs["server"] = SERVER
 
-    ok = mt5.initialize(TERMINAL_PATH, **kwargs) if TERMINAL_PATH else mt5.initialize(**kwargs)
+def ensure_native_agent_ready():
+    ensure_dirs()
+    heartbeat = read_heartbeat()
 
-    if not ok:
-        raise BridgeError("mt5.initialize failed", status=500, details=last_error())
+    if not heartbeat:
+        raise BridgeError(
+            "MT5 native bridge agent heartbeat was not found",
+            status=503,
+            details=readiness_details(),
+        )
+
+    if heartbeat.get("status") == "stopped":
+        raise BridgeError(
+            "MT5 native bridge agent is stopped",
+            status=503,
+            details=readiness_details(),
+        )
+
+    if int(heartbeat.get("ageMs", HEARTBEAT_STALE_MS + 1)) > HEARTBEAT_STALE_MS:
+        raise BridgeError(
+            "MT5 native bridge agent heartbeat is stale",
+            status=503,
+            details=readiness_details(),
+        )
+
+    return heartbeat
 
 
-def ensure_symbol(symbol):
+def request_native(action, payload=None):
+    ensure_native_agent_ready()
+    payload = payload or {}
+    request_id = uuid.uuid4().hex
+    request_path = os.path.join(REQUESTS_DIR, f"{request_id}.req")
+    temp_path = os.path.join(REQUESTS_DIR, f"{request_id}.tmp")
+    response_path = os.path.join(RESPONSES_DIR, f"{request_id}.res")
+
+    if os.path.exists(response_path):
+        safe_remove(response_path)
+
+    fields = {
+        "id": request_id,
+        "action": action,
+        "createdAtMs": int(time.time() * 1000),
+    }
+
+    for key, value in payload.items():
+        if value is None:
+            continue
+
+        if isinstance(value, str):
+            fields[key] = value.replace("\r", "").replace("\n", "\\n")
+        else:
+            fields[key] = value
+
+    write_key_values(temp_path, fields)
+    os.replace(temp_path, request_path)
+
+    deadline = time.monotonic() + (TIMEOUT_MS / 1000)
+
+    while time.monotonic() < deadline:
+        response = try_read_key_values(response_path)
+
+        if response is not None:
+            safe_remove(response_path, retries=5, delay_ms=25)
+
+            response = normalize_values(response)
+
+            if response.get("status") == "error":
+                raise BridgeError(
+                    response.get("error", "MT5 native bridge agent returned an error"),
+                    status=int(response.get("httpStatus", 400)),
+                    details=response,
+                )
+
+            return response
+
+        time.sleep(POLL_INTERVAL_MS / 1000)
+
+    raise BridgeError(
+        "Timed out waiting for MT5 native bridge agent response",
+        status=504,
+        details={
+            **readiness_details(),
+            "requestId": request_id,
+            "requestPath": request_path,
+            "responsePath": response_path,
+            "timeoutMs": TIMEOUT_MS,
+        },
+    )
+
+
+def health_payload():
+    heartbeat = ensure_native_agent_ready()
+    response = request_native("health")
+    response["heartbeat"] = heartbeat
+    return response
+
+
+def quote_for_symbol(symbol):
     if not symbol:
         raise BridgeError("Missing symbol")
 
-    ensure_connection()
-    info = mt5.symbol_info(symbol)
+    return request_native("quote", {"symbol": str(symbol).strip()})
 
-    if info is None:
-        raise BridgeError(f"MT5 symbol not found: {symbol}", status=404, details=last_error())
 
-    if not info.visible and not mt5.symbol_select(symbol, True):
-        raise BridgeError(f"MT5 could not select symbol: {symbol}", status=400, details=last_error())
+def account_snapshot(symbol):
+    return request_native("account", {"symbol": str(symbol or "").strip()})
 
-    tick = mt5.symbol_info_tick(symbol)
 
-    if tick is None:
-        raise BridgeError(f"MT5 did not return a live tick for {symbol}", status=503, details=last_error())
+def list_symbols(filter_text=""):
+    response = request_native("symbols", {"filter": str(filter_text or "").strip().upper()})
+    raw_symbols = response.get("symbols", "")
+    response["symbols"] = [symbol for symbol in str(raw_symbols).split("|") if symbol]
+    return response
 
-    return info, tick
 
+def symbol_info(symbol):
+    if not symbol:
+        raise BridgeError("Missing symbol")
 
-def get_price_from_tick(tick, side):
-    bid = float(getattr(tick, "bid", 0) or 0)
-    ask = float(getattr(tick, "ask", 0) or 0)
-    last = float(getattr(tick, "last", 0) or 0)
+    return request_native("symbol_info", {"symbol": str(symbol).strip()})
 
-    if side == "BUY" and ask > 0:
-        return ask
 
-    if side == "SELL" and bid > 0:
-        return bid
+def history_snapshot(symbol="", from_epoch=None, to_epoch=None, limit=50):
+    response = request_native(
+        "history",
+        {
+            "symbol": str(symbol or "").strip(),
+            "fromEpoch": from_epoch,
+            "toEpoch": to_epoch,
+            "limit": limit,
+        },
+    )
+    deals = []
 
-    if last > 0:
-        return last
+    for key, value in sorted(response.items()):
+        if not key.startswith("deal"):
+            continue
 
-    if ask > 0:
-        return ask
+        parts = str(value).split("|")
 
-    if bid > 0:
-        return bid
+        if len(parts) < 11:
+            continue
 
-    raise BridgeError("MT5 tick did not contain a usable price", status=503)
-
-
-def get_mid_price(tick):
-    bid = float(getattr(tick, "bid", 0) or 0)
-    ask = float(getattr(tick, "ask", 0) or 0)
-    last = float(getattr(tick, "last", 0) or 0)
-
-    if bid > 0 and ask > 0:
-        return (bid + ask) / 2
-
-    if last > 0:
-        return last
-
-    if ask > 0:
-        return ask
-
-    if bid > 0:
-        return bid
-
-    raise BridgeError("MT5 tick did not contain a usable mid price", status=503)
-
-
-def volume_decimals(step):
-    step_text = f"{step:.8f}".rstrip("0").rstrip(".")
-
-    if "." not in step_text:
-        return 0
-
-    return len(step_text.split(".")[1])
-
-
-def normalize_volume(raw_qty, info):
-    try:
-        qty = float(raw_qty)
-    except (TypeError, ValueError):
-        raise BridgeError("Invalid order quantity")
-
-    if qty <= 0:
-        raise BridgeError("Order quantity must be greater than 0")
-
-    volume_min = float(getattr(info, "volume_min", 0.01) or 0.01)
-    volume_max = float(getattr(info, "volume_max", qty) or qty)
-    volume_step = float(getattr(info, "volume_step", volume_min) or volume_min)
-    decimals = volume_decimals(volume_step)
-
-    qty = min(max(qty, volume_min), volume_max)
-    steps = round(qty / volume_step)
-    normalized = round(steps * volume_step, decimals)
-
-    if normalized < volume_min:
-        raise BridgeError(
-            f"Normalized volume {normalized} is below broker minimum {volume_min}",
-            status=400,
-        )
-
-    return normalized
-
-
-def fill_mode(info):
-    filling_mode = getattr(info, "filling_mode", CONSTANTS["ORDER_FILLING_RETURN"])
-
-    if filling_mode in {
-        CONSTANTS["ORDER_FILLING_FOK"],
-        CONSTANTS["ORDER_FILLING_IOC"],
-        CONSTANTS["ORDER_FILLING_RETURN"],
-    }:
-        return filling_mode
-
-    return CONSTANTS["ORDER_FILLING_RETURN"]
-
-
-def market_request(symbol, side, qty, info, *, position_ticket=None, deviation=None, magic=None, comment=None):
-    tick = mt5.symbol_info_tick(symbol)
-
-    if tick is None:
-        raise BridgeError(f"MT5 did not return a live tick for {symbol}", status=503, details=last_error())
-
-    request = {
-        "action": CONSTANTS["TRADE_ACTION_DEAL"],
-        "symbol": symbol,
-        "volume": qty,
-        "type": CONSTANTS["ORDER_TYPE_BUY"] if side == "BUY" else CONSTANTS["ORDER_TYPE_SELL"],
-        "price": get_price_from_tick(tick, side),
-        "deviation": int(deviation if deviation is not None else DEFAULT_DEVIATION),
-        "magic": int(magic if magic is not None else DEFAULT_MAGIC),
-        "comment": str(comment or f"{COMMENT_PREFIX}:{symbol}:{side}")[:31],
-        "type_time": CONSTANTS["ORDER_TIME_GTC"],
-        "type_filling": fill_mode(info),
-    }
-
-    if position_ticket is not None:
-        request["position"] = int(position_ticket)
-
-    return request
-
-
-def validate_request(request):
-    check = mt5.order_check(request)
-
-    if check is None:
-        raise BridgeError("MT5 order_check returned None", status=400, details=last_error())
-
-    retcode = getattr(check, "retcode", None)
-
-    if retcode not in {0}:
-        raise BridgeError("MT5 order_check rejected the order", status=400, details=to_plain(check))
-
-    return check
-
-
-def send_request(request):
-    check = validate_request(request)
-    result = mt5.order_send(request)
-
-    if result is None:
-        raise BridgeError("MT5 order_send returned None", status=400, details=last_error())
-
-    retcode = getattr(result, "retcode", None)
-
-    if retcode not in SUCCESS_SEND_RETCODES:
-        raise BridgeError("MT5 order_send failed", status=400, details=to_plain(result))
-
-    return check, result
-
-
-def positions_for_symbol(symbol):
-    positions = mt5.positions_get(symbol=symbol)
-
-    if positions is None:
-        return []
-
-    return list(positions)
-
-
-def net_position(symbol):
-    positions = positions_for_symbol(symbol)
-    buy_volume = 0.0
-    sell_volume = 0.0
-
-    for position in positions:
-        if position.type == CONSTANTS["POSITION_TYPE_BUY"]:
-            buy_volume += float(position.volume)
-        elif position.type == CONSTANTS["POSITION_TYPE_SELL"]:
-            sell_volume += float(position.volume)
-
-    return round(buy_volume - sell_volume, 8), positions
-
-
-def close_opposite_positions(symbol, side, target_qty, info, *, deviation=None, magic=None, comment=None):
-    target_type = CONSTANTS["POSITION_TYPE_SELL"] if side == "BUY" else CONSTANTS["POSITION_TYPE_BUY"]
-    positions = [position for position in positions_for_symbol(symbol) if position.type == target_type]
-    remaining = target_qty
-    executions = []
-
-    for position in sorted(positions, key=lambda item: item.time):
-        if remaining <= 0:
-            break
-
-        close_qty = normalize_volume(min(remaining, float(position.volume)), info)
-        request = market_request(
-            symbol,
-            side,
-            close_qty,
-            info,
-            position_ticket=position.ticket,
-            deviation=deviation,
-            magic=magic,
-            comment=comment,
-        )
-        check, result = send_request(request)
-        result_dict = to_plain(result)
-        executions.append(
+        deals.append(
             {
-                "kind": "close",
-                "ticket": position.ticket,
-                "qty": close_qty,
-                "validatedPrice": request["price"],
-                "fillPrice": float(result_dict.get("price") or request["price"]),
-                "check": to_plain(check),
-                "result": result_dict,
+                "ticket": coerce_value(parts[0]),
+                "symbol": parts[1],
+                "entry": coerce_value(parts[2]),
+                "type": coerce_value(parts[3]),
+                "volume": coerce_value(parts[4]),
+                "price": coerce_value(parts[5]),
+                "profit": coerce_value(parts[6]),
+                "time": coerce_value(parts[7]),
+                "comment": parts[8],
+                "magic": coerce_value(parts[9]),
+                "positionId": coerce_value(parts[10]),
             }
         )
-        remaining = round(remaining - close_qty, 8)
 
-    return remaining, executions
+    response["deals"] = deals
+    return response
+
+
+def bars_snapshot(symbol="", timeframe="M15", count=250):
+    response = request_native(
+        "bars",
+        {
+            "symbol": str(symbol or "").strip(),
+            "timeframe": str(timeframe or "M15").strip().upper(),
+            "count": count,
+        },
+    )
+    bars = []
+
+    for key, value in sorted(response.items()):
+      if not key.startswith("bar"):
+        continue
+
+      parts = str(value).split("|")
+
+      if len(parts) < 6:
+        continue
+
+      bars.append(
+          {
+              "time": coerce_value(parts[0]),
+              "open": coerce_value(parts[1]),
+              "high": coerce_value(parts[2]),
+              "low": coerce_value(parts[3]),
+              "close": coerce_value(parts[4]),
+              "tickVolume": coerce_value(parts[5]),
+          }
+      )
+
+    response["bars"] = bars
+    return response
 
 
 def execute_order(payload):
-    symbol = str(payload.get("symbol", "")).strip().upper()
+    symbol = str(payload.get("symbol", "")).strip()
     side = str(payload.get("side", "")).strip().upper()
+
+    if not symbol:
+        raise BridgeError("Missing symbol")
 
     if side not in {"BUY", "SELL"}:
         raise BridgeError("Order side must be BUY or SELL")
 
-    info, tick = ensure_symbol(symbol)
-    qty = normalize_volume(payload.get("qty"), info)
-    deviation = payload.get("deviation")
-    magic = payload.get("magic")
-    comment = payload.get("comment") or f"{COMMENT_PREFIX}:{symbol}:{side}"
-    expected_price = payload.get("expectedPrice")
-
-    remaining, executions = close_opposite_positions(
-        symbol,
-        side,
-        qty,
-        info,
-        deviation=deviation,
-        magic=magic,
-        comment=comment,
+    return request_native(
+        "order",
+        {
+            "symbol": symbol,
+            "side": side,
+            "qty": payload.get("qty"),
+            "expectedPrice": payload.get("expectedPrice"),
+            "deviation": payload.get("deviation"),
+            "magic": payload.get("magic"),
+            "comment": payload.get("comment"),
+            "signalSource": payload.get("signalSource"),
+            "rawSignal": payload.get("rawSignal"),
+            "stopLoss": payload.get("stopLoss"),
+            "takeProfit": payload.get("takeProfit"),
+        },
     )
 
-    if remaining > 0:
-        request = market_request(
-            symbol,
-            side,
-            remaining,
-            info,
-            deviation=deviation,
-            magic=magic,
-            comment=comment,
-        )
-        check, result = send_request(request)
-        result_dict = to_plain(result)
-        executions.append(
-            {
-                "kind": "open",
-                "qty": remaining,
-                "validatedPrice": request["price"],
-                "fillPrice": float(result_dict.get("price") or request["price"]),
-                "check": to_plain(check),
-                "result": result_dict,
-            }
-        )
 
-    position, positions = net_position(symbol)
-    account = mt5.account_info()
+def modify_position(payload):
+    symbol = str(payload.get("symbol", "")).strip()
 
-    if account is None:
-        raise BridgeError("MT5 account is not available after order", status=500, details=last_error())
+    if not symbol:
+        raise BridgeError("Missing symbol")
 
-    last_execution = executions[-1] if executions else None
-
-    return {
-        "symbol": symbol,
-        "side": side,
-        "qty": qty,
-        "expectedPrice": float(expected_price) if expected_price is not None else None,
-        "validatedPrice": last_execution["validatedPrice"] if last_execution else get_mid_price(tick),
-        "fillPrice": last_execution["fillPrice"] if last_execution else get_mid_price(tick),
-        "position": position,
-        "cash": float(account.margin_free),
-        "balance": float(account.balance),
-        "equity": float(account.equity),
-        "marginFree": float(account.margin_free),
-        "executions": executions,
-        "positions": [to_plain(position_item) for position_item in positions],
-    }
-
-
-def quote_for_symbol(symbol):
-    _, tick = ensure_symbol(symbol)
-
-    return {
-        "symbol": symbol,
-        "bid": float(getattr(tick, "bid", 0) or 0),
-        "ask": float(getattr(tick, "ask", 0) or 0),
-        "last": float(getattr(tick, "last", 0) or 0),
-        "price": float(get_mid_price(tick)),
-        "time": int(getattr(tick, "time", 0) or 0),
-    }
-
-
-def account_snapshot(symbol):
-    ensure_connection()
-    account = mt5.account_info()
-
-    if account is None:
-        raise BridgeError("MT5 account is not available", status=500, details=last_error())
-
-    position = 0.0
-    positions = []
-
-    if symbol:
-        position, positions = net_position(symbol)
-
-    return {
-        "symbol": symbol,
-        "cash": float(account.margin_free),
-        "balance": float(account.balance),
-        "equity": float(account.equity),
-        "marginFree": float(account.margin_free),
-        "position": position,
-        "positions": [to_plain(position_item) for position_item in positions],
-    }
-
-
-def health_payload():
-    ensure_connection()
-    account = mt5.account_info()
-    terminal = mt5.terminal_info()
-
-    return {
-        "status": "ok",
-        "mt5PackageInstalled": mt5 is not None,
-        "terminal": to_plain(terminal),
-        "account": to_plain(account),
-        "version": list(mt5.version()) if mt5 is not None else None,
-    }
+    return request_native(
+        "modify",
+        {
+            "symbol": symbol,
+            "side": payload.get("side"),
+            "stopLoss": payload.get("stopLoss"),
+            "takeProfit": payload.get("takeProfit"),
+        },
+    )
 
 
 def read_json(handler):
@@ -494,18 +620,52 @@ def write_json(handler, status, payload):
     handler.wfile.write(body)
 
 
+def is_port_bound(host, port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.5)
+
+    try:
+        return sock.connect_ex((host, port)) == 0
+    finally:
+        sock.close()
+
+
 def handle_request(method, path, payload):
     if method == "GET" and path == "/health":
         return health_payload()
 
     if method == "POST" and path == "/quote":
-        return quote_for_symbol(str(payload.get("symbol", "")).strip().upper())
+        return quote_for_symbol(payload.get("symbol"))
 
     if method == "POST" and path == "/account":
-        return account_snapshot(str(payload.get("symbol", "")).strip().upper())
+        return account_snapshot(payload.get("symbol"))
+
+    if method == "POST" and path == "/symbols":
+        return list_symbols(payload.get("filter"))
+
+    if method == "POST" and path == "/symbol-info":
+        return symbol_info(payload.get("symbol"))
+
+    if method == "POST" and path == "/history":
+        return history_snapshot(
+            payload.get("symbol"),
+            payload.get("fromEpoch"),
+            payload.get("toEpoch"),
+            payload.get("limit", 50),
+        )
+
+    if method == "POST" and path == "/bars":
+        return bars_snapshot(
+            payload.get("symbol"),
+            payload.get("timeframe", "M15"),
+            payload.get("count", 250),
+        )
 
     if method == "POST" and path == "/order":
         return execute_order(payload)
+
+    if method == "POST" and path == "/modify":
+        return modify_position(payload)
 
     raise BridgeError(f"Unsupported route: {method} {path}", status=404)
 
@@ -525,8 +685,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         try:
             payload = {} if method == "GET" else read_json(self)
-            with MT5_LOCK:
-                response = handle_request(method, path, payload)
+            response = handle_request(method, path, payload)
             write_json(self, 200, response)
         except BridgeError as exc:
             write_json(self, exc.status, {"error": exc.message, "details": exc.details})
@@ -534,15 +693,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
             write_json(self, 500, {"error": str(exc)})
 
 
-def shutdown_mt5():
-    if mt5 is not None:
-        mt5.shutdown()
-
-
 def main():
-    atexit.register(shutdown_mt5)
-    server = ThreadingHTTPServer((HOST, PORT), BridgeHandler)
-    print(f"MT5 bridge listening on http://{HOST}:{PORT}")
+    try:
+        acquire_lock()
+    except RuntimeError as exc:
+        # Another bridge instance is already active or in startup.
+        print(str(exc), file=sys.stderr)
+        return
+
+    atexit.register(release_lock)
+    ensure_dirs()
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), BridgeHandler)
+    except OSError as exc:
+        if exc.errno in {errno.EADDRINUSE, 10048} and is_port_bound(HOST, PORT):
+            print(f"MT5 native bridge already listening on http://{HOST}:{PORT}", file=sys.stderr)
+            return
+        raise
+
+    print(f"MT5 native bridge listening on http://{HOST}:{PORT}")
+    print(f"Bridge root: {BRIDGE_ROOT}")
     server.serve_forever()
 
 

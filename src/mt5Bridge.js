@@ -52,6 +52,7 @@ function readQuote(data, symbol) {
   const bid = readNumber(data.bid);
   const ask = readNumber(data.ask);
   const last = readNumber(data.last);
+  const time = readNumber(data.time);
   const derivedMid = bid != null && ask != null ? (bid + ask) / 2 : null;
   const price = readNumber(data.price) ?? derivedMid ?? last;
 
@@ -64,6 +65,7 @@ function readQuote(data, symbol) {
     bid,
     ask,
     last,
+    time,
     price,
   };
 }
@@ -93,7 +95,26 @@ async function placeMt5Order(symbol, side, qty, options = {}) {
       comment: options.comment,
       signalSource: options.signalSource,
       rawSignal: options.rawSignal,
+      stopLoss: options.stopLoss,
+      takeProfit: options.takeProfit,
     },
+  });
+}
+
+async function modifyMt5Position(symbol, options = {}) {
+  return requestBridge('/modify', {
+    payload: {
+      symbol,
+      side: options.side,
+      stopLoss: options.stopLoss,
+      takeProfit: options.takeProfit,
+    },
+  });
+}
+
+async function getMt5SymbolInfo(symbol) {
+  return requestBridge('/symbol-info', {
+    payload: { symbol },
   });
 }
 
@@ -118,10 +139,62 @@ async function getMt5Health() {
   });
 }
 
+async function getMt5TradeHistory({ symbol = '', fromEpoch, toEpoch, limit = 50 } = {}) {
+  const data = await requestBridge('/history', {
+    payload: {
+      symbol,
+      fromEpoch,
+      toEpoch,
+      limit,
+    },
+  });
+
+  return Array.isArray(data.deals)
+    ? data.deals.map((deal) => ({
+        ...deal,
+        ticket: readNumber(deal.ticket) ?? deal.ticket,
+        entry: readNumber(deal.entry) ?? deal.entry,
+        type: readNumber(deal.type) ?? deal.type,
+        volume: readNumber(deal.volume) ?? deal.volume,
+        price: readNumber(deal.price) ?? deal.price,
+        profit: readNumber(deal.profit) ?? deal.profit,
+        time: readNumber(deal.time) ?? deal.time,
+        magic: readNumber(deal.magic) ?? deal.magic,
+        positionId: readNumber(deal.positionId) ?? deal.positionId,
+      }))
+    : [];
+}
+
+async function getMt5Bars({ symbol, timeframe = 'M15', count = 250 } = {}) {
+  const data = await requestBridge('/bars', {
+    payload: {
+      symbol,
+      timeframe,
+      count,
+    },
+  });
+
+  return Array.isArray(data.bars)
+    ? data.bars.map((bar) => ({
+        ...bar,
+        time: readNumber(bar.time) ?? bar.time,
+        open: readNumber(bar.open) ?? bar.open,
+        high: readNumber(bar.high) ?? bar.high,
+        low: readNumber(bar.low) ?? bar.low,
+        close: readNumber(bar.close) ?? bar.close,
+        tickVolume: readNumber(bar.tickVolume) ?? bar.tickVolume,
+      }))
+    : [];
+}
+
 module.exports = {
   getLatestMt5Quote,
   getLatestMt5Price,
   placeMt5Order,
+  modifyMt5Position,
+  getMt5SymbolInfo,
   getMt5AccountState,
   getMt5Health,
+  getMt5TradeHistory,
+  getMt5Bars,
 };
