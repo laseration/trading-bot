@@ -31,6 +31,29 @@ function addCheck(checks, name, passed, score = 0, note = '') {
   return passed ? score : 0;
 }
 
+function getSessionBucket(sessionLabels = [], referenceTimeMs = Date.now()) {
+  const labels = Array.isArray(sessionLabels)
+    ? sessionLabels.map((label) => String(label || '').toUpperCase())
+    : [];
+  const hasLondon = labels.includes('LONDON');
+  const hasNewYork = labels.includes('NEWYORK');
+  const hour = new Date(referenceTimeMs).getUTCHours();
+
+  if (!hasLondon && !hasNewYork) {
+    return 'ASIA';
+  }
+
+  if (hasLondon && hasNewYork) {
+    return 'LONDON_NEWYORK_OVERLAP';
+  }
+
+  if (hasLondon) {
+    return 'LONDON';
+  }
+
+  return hour >= 19 ? 'LATE_NEWYORK' : 'NEWYORK';
+}
+
 async function buildDecisionContext(profile, candidate, options = {}) {
   const quote = options.quote || (profile.dataSource === 'mt5' ? await getLatestMt5Quote(profile.symbol) : { price: Number(candidate.entry) || null });
   const bars = options.bars || await getHistoricalBars(profile, {
@@ -185,10 +208,9 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   }
 
   const sessionLabels = Array.isArray(marketContext.sessionLabels) ? marketContext.sessionLabels : [];
+  const sessionBucket = getSessionBucket(sessionLabels, Date.now());
   const sessionMatch = settings.allowedSessions.length === 0
     || sessionLabels.some((label) => settings.allowedSessions.includes(label));
-  const isPreferredEurUsdSession = symbol === 'EURUSD'
-    && (sessionLabels.includes('LONDON') || sessionLabels.includes('NEWYORK'));
   score += addCheck(checks, 'session_filter', sessionMatch, 10, sessionLabels.join(', ') || 'none');
   if (!sessionMatch) {
     blocks.push('session_filter');
@@ -232,25 +254,30 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   const emaSeparationAtr = Number(indicators.emaSeparationAtr);
   const cleanEmaAlignment = (direction === 'BUY' && emaFast > emaSlow)
     || (direction === 'SELL' && emaFast < emaSlow);
-  const strongMomentumAligned = direction === 'BUY'
-    ? Number.isFinite(rsi) && rsi >= (config.strategy.biasRsiLongMin + 7)
-    : direction === 'SELL'
-      ? Number.isFinite(rsi) && rsi <= (config.strategy.biasRsiShortMax - 7)
-      : false;
-  const hasSignalConfirmation = signalConfluence.count > 0 && signalConfluence.consensusDirection === direction;
   const isEurUsdBias = symbol === 'EURUSD'
     && sourceType === 'STRATEGY'
     && strategyName === 'bias';
-  const canPromoteEurUsdSessionBias = isEurUsdBias
-    && sessionMatch
-    && isPreferredEurUsdSession
-    && biasStrength === 'strong'
-    && cleanEmaAlignment
-    && trendAligned;
   const isEurUsdRangingBias = isEurUsdBias && marketContext.regime === 'RANGING';
   const isEurUsdUnstableBias = isEurUsdBias && marketContext.regime === 'UNSTABLE';
   const isEurUsdOverrideRegime = isEurUsdBias && ['RANGING', 'UNSTABLE'].includes(marketContext.regime);
   const requiresEurUsdBiasHardening = isEurUsdBias;
+  const priceTooStretched = strategyReasons.includes('price_too_stretched');
+  const priceSlightlyStretched = strategyReasons.includes('price_slightly_stretched');
+  const continuationCheck = direction === 'BUY'
+    ? Boolean(indicators.continuationLong)
+    : direction === 'SELL'
+      ? Boolean(indicators.continuationShort)
+      : false;
+  const structureCheck = direction === 'BUY'
+    ? Boolean(indicators.longStructureOk)
+    : direction === 'SELL'
+      ? Boolean(indicators.shortStructureOk)
+      : false;
+  const pullbackOk = indicators.pullbackOk !== false;
+  const newYorkStrictTrendAligned = marketContext.trendBias === direction;
+  const londonMinFinalRr = Number(config.safetyControls.eurusdLondonMinFinalRr || settings.minFinalRiskReward);
+  const newYorkMinFinalRr = Number(config.safetyControls.eurusdNewYorkMinFinalRr || settings.minFinalRiskReward);
+  const overlapMinFinalRr = Math.max(londonMinFinalRr, settings.minFinalRiskReward);
 
   const rrTp1Ok = rrTp1 == null || rrTp1 >= settings.minTp1RiskReward;
   score += addCheck(checks, 'rr_tp1', rrTp1Ok, 8, rrTp1 == null ? 'n/a' : rrTp1.toFixed(2));
@@ -278,6 +305,46 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     score -= 100;
     blocks.push('eurusd_bias_unstable_block');
     reasons.push('eurusd_bias_unstable_block');
+  }
+
+  if (isEurUsdBias && sessionBucket === 'ASIA') {
+    checks.push({ name: 'eurusd_bias_session_gate', passed: false, score: -100, note: sessionBucket });
+    score -= 100;
+    blocks.push('eurusd_asia_session_block');
+    reasons.push('eurusd_asia_session_block');
+  }
+
+  if (isEurUsdBias && sessionBucket === 'LATE_NEWYORK' && !config.safetyControls.eurusdBiasAllowLateNewYork) {
+    checks.push({ name: 'eurusd_bias_session_gate', passed: false, score: -100, note: sessionBucket });
+    score -= 100;
+    blocks.push('eurusd_late_newyork_block');
+    reasons.push('eurusd_late_newyork_block');
+  }
+
+  if (isEurUsdBias && sessionBucket === 'LONDON') {
+    if (marketContext.regime !== 'TRENDING' || !trendAligned || rrFinal == null || rrFinal < londonMinFinalRr) {
+      checks.push({ name: 'eurusd_london_session_profile', passed: false, score: -30, note: sessionBucket });
+      score -= 30;
+      blocks.push('eurusd_london_requires_trending_bias');
+      reasons.push('eurusd_london_requires_trending_bias');
+    }
+  }
+
+  if (isEurUsdBias && ['NEWYORK', 'LATE_NEWYORK'].includes(sessionBucket)) {
+    const cleanContinuationOk = continuationCheck
+      && structureCheck
+      && pullbackOk
+      && !priceTooStretched
+      && !priceSlightlyStretched
+      && !(recentFailedZone && recentFailedZone.active);
+    const newYorkRrOk = rrFinal != null && rrFinal >= newYorkMinFinalRr;
+
+    if (marketContext.regime !== 'TRENDING' || !newYorkStrictTrendAligned || !newYorkRrOk || !cleanContinuationOk) {
+      checks.push({ name: 'eurusd_newyork_session_profile', passed: false, score: -35, note: sessionBucket });
+      score -= 35;
+      blocks.push('eurusd_newyork_requires_clean_continuation');
+      reasons.push('eurusd_newyork_requires_clean_continuation');
+    }
   }
 
   if (requiresEurUsdBiasHardening && !h1BiasAligned) {
@@ -330,34 +397,6 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
       blocks.push('same_thesis_retry_block');
       reasons.push('same_thesis_retry_block');
     }
-  }
-
-  if (marketContext.regime === 'UNSTABLE') {
-    const directionalStrength = String(candidate.biasStrength || 'none').toLowerCase();
-    const unstableConfirmationOk = directionalStrength === 'strong' || hasSignalConfirmation;
-    score += addCheck(
-      checks,
-      'unstable_regime_confirmation',
-      unstableConfirmationOk,
-      unstableConfirmationOk ? 5 : 0,
-      hasSignalConfirmation ? 'signal_confluence' : directionalStrength || 'none',
-    );
-
-    if (!unstableConfirmationOk) {
-      blocks.push('regime_unstable_confirmation');
-      reasons.push('unstable regime requires strong directional confirmation');
-    }
-  }
-
-  if (canPromoteEurUsdSessionBias) {
-    const sessionPromotionScore = marketContext.regime === 'UNSTABLE' ? 12 : 8;
-    score += addCheck(
-      checks,
-      'eurusd_session_bias_promotion',
-      true,
-      sessionPromotionScore,
-      `${sessionLabels.join('+') || 'none'}:${biasStrength}`,
-    );
   }
 
   if (sourceType === 'TELEGRAM') {
@@ -419,6 +458,28 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     reasons.push('max open trades reached');
   }
 
+  if (
+    isEurUsdBias
+    && sessionBucket === 'LONDON_NEWYORK_OVERLAP'
+    && blocks.length === 0
+    && marketContext.regime === 'TRENDING'
+    && h1BiasAligned
+    && triggerConfirmed
+    && sessionMatch
+    && spreadOk
+    && (!settings.blockNearNews || !newsRisk)
+    && rrFinal != null
+    && rrFinal >= overlapMinFinalRr
+  ) {
+    score += addCheck(
+      checks,
+      'eurusd_overlap_quality_bonus',
+      true,
+      Number(config.safetyControls.eurusdOverlapScoreBonus || 5),
+      sessionBucket,
+    );
+  }
+
   const normalizedScore = clamp(Math.round(score), 0, 100);
   const cappedScore = isEurUsdRangingBias
     ? Math.min(
@@ -426,14 +487,16 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
         Number(config.safetyControls.eurusdRangingBiasApprovalCap || Math.max(0, settings.minApproveScore - 1)),
       )
     : normalizedScore;
-  const effectiveApproveScore = canPromoteEurUsdSessionBias
-    ? Math.max(settings.minWatchScore + 5, settings.minApproveScore - 7)
-    : settings.minApproveScore;
+  const effectiveApproveScore = settings.minApproveScore;
   let decision = 'REJECT';
 
   const forceReject = blocks.includes('regime_dead')
     || blocks.includes('eurusd_bias_ranging_block')
     || blocks.includes('eurusd_bias_unstable_block')
+    || blocks.includes('eurusd_asia_session_block')
+    || blocks.includes('eurusd_late_newyork_block')
+    || blocks.includes('eurusd_london_requires_trending_bias')
+    || blocks.includes('eurusd_newyork_requires_clean_continuation')
     || (isEurUsdOverrideRegime && blocks.length > 0);
 
   if (
@@ -463,6 +526,7 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
       quote,
       spread: spreadMetrics,
       marketContext,
+      sessionBucket,
       signalConfluence,
       newsRisk,
       entryDeviationPct,
