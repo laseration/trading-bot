@@ -247,6 +247,13 @@ function main() {
     ),
   );
   printSection(
+    'Live Strategy Trades by Symbol + Strategy + Setup Type + Side + Regime',
+    summarizeBy(
+      liveStrategyRows,
+      (row) => `${normalizeKey(row.symbol)} | ${normalizeKey(row.strategy_name)} | ${extractSetupType(row)} | ${normalizeKey(row.side)} | ${normalizeKey(row.regime)}`,
+    ),
+  );
+  printSection(
     'By Symbol + Strategy + Setup Type',
     summarizeBy(
       rows,
