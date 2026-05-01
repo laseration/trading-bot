@@ -87,6 +87,7 @@ These files are ignored by Git so local runs do not create noisy diffs. Force-ad
 - `EURUSD` bias is `TRENDING`-only by default.
 - `RANGING` and `UNSTABLE` EURUSD bias entries are blocked unless explicitly enabled by env.
 - `ASIA` is blocked for EURUSD bias, `LONDON` is allowed only for qualified trend setups, and `NEWYORK` is stricter than London by default.
+- `GBPUSD` can be enabled as a conservative demo strategy symbol with `MT5_ENABLE_GBPUSD_STRATEGY=true`; it is trend-continuation-only (`setupType=trend_continuation`) and rejects ranging/unstable conditions.
 - If stop distance is missing, the bot sizes the trade at `0` and skips execution.
 
 ## Notes
