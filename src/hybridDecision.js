@@ -245,8 +245,12 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   const isEurUsdBias = symbol === 'EURUSD'
     && sourceType === 'STRATEGY'
     && strategyName === 'bias';
+  const isGbpUsdBias = symbol === 'GBPUSD'
+    && sourceType === 'STRATEGY'
+    && strategyName === 'bias';
   const isEurUsdBreakoutRetest = isEurUsdBias && setupType === 'breakout_retest';
   const isEurUsdTrendContinuation = isEurUsdBias && setupType === 'trend_continuation';
+  const isGbpUsdTrendContinuation = isGbpUsdBias && setupType === 'trend_continuation';
   const trendAligned = marketContext.trendBias === 'HOLD' || marketContext.trendBias === direction;
   score += addCheck(checks, 'trend_alignment', trendAligned, 25, marketContext.trendBias || 'HOLD');
   if (!trendAligned && settings.requireTrendAlignment && !isEurUsdBreakoutRetest) {
@@ -282,6 +286,7 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   const londonMinFinalRr = Number(config.safetyControls.eurusdLondonMinFinalRr || settings.minFinalRiskReward);
   const newYorkMinFinalRr = Number(config.safetyControls.eurusdNewYorkMinFinalRr || settings.minFinalRiskReward);
   const overlapMinFinalRr = Math.max(londonMinFinalRr, settings.minFinalRiskReward);
+  const stopDistance = Number(candidate.stopDistance);
 
   if (isEurUsdBias && !setupType) {
     checks.push({ name: 'eurusd_setup_type', passed: false, score: -100, note: 'missing' });
@@ -302,6 +307,51 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     score -= 100;
     blocks.push('eurusd_trend_continuation_requires_trending');
     reasons.push('eurusd_trend_continuation_requires_trending');
+  }
+
+  if (isGbpUsdBias && !setupType) {
+    checks.push({ name: 'gbpusd_setup_type', passed: false, score: -100, note: 'missing' });
+    score -= 100;
+    blocks.push('gbpusd_missing_setup_type');
+    reasons.push('gbpusd_missing_setup_type');
+  } else if (isGbpUsdBias && !isGbpUsdTrendContinuation) {
+    checks.push({ name: 'gbpusd_setup_type', passed: false, score: -100, note: setupType });
+    score -= 100;
+    blocks.push('gbpusd_invalid_setup_type');
+    reasons.push('gbpusd_invalid_setup_type');
+  }
+
+  if (isGbpUsdTrendContinuation && marketContext.regime !== 'TRENDING') {
+    checks.push({ name: 'gbpusd_trend_continuation_regime', passed: false, score: -100, note: marketContext.regime || 'UNKNOWN' });
+    score -= 100;
+    blocks.push('gbpusd_trend_continuation_requires_trending');
+    reasons.push('gbpusd_trend_continuation_requires_trending');
+  }
+
+  if (isGbpUsdBias && ['RANGING', 'UNSTABLE', 'DEAD'].includes(marketContext.regime)) {
+    checks.push({ name: 'gbpusd_regime_gate', passed: false, score: -100, note: marketContext.regime });
+    score -= 100;
+    blocks.push('gbpusd_regime_block');
+    reasons.push(`gbpusd_regime_${String(marketContext.regime).toLowerCase()}_block`);
+  }
+
+  if (isGbpUsdBias && !(Number.isFinite(stopDistance) && stopDistance > 0)) {
+    checks.push({ name: 'gbpusd_stop_distance_required', passed: false, score: -100, note: String(candidate.stopDistance ?? 'na') });
+    score -= 100;
+    blocks.push('gbpusd_missing_stop_distance');
+    reasons.push('gbpusd_missing_stop_distance');
+  }
+
+  if (isGbpUsdBias && (priceTooStretched || priceSlightlyStretched)) {
+    checks.push({
+      name: 'gbpusd_price_stretch',
+      passed: false,
+      score: -35,
+      note: priceTooStretched ? 'price_too_stretched' : 'price_slightly_stretched',
+    });
+    score -= 35;
+    blocks.push('gbpusd_price_stretch_block');
+    reasons.push('gbpusd_price_stretch_block');
   }
 
   const rrTp1Ok = rrTp1 == null || rrTp1 >= settings.minTp1RiskReward;
@@ -379,6 +429,20 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     reasons.push('eurusd_late_newyork_block');
   }
 
+  if (isGbpUsdBias && sessionBucket === 'ASIA') {
+    checks.push({ name: 'gbpusd_session_gate', passed: false, score: -100, note: sessionBucket });
+    score -= 100;
+    blocks.push('gbpusd_asia_session_block');
+    reasons.push('gbpusd_asia_session_block');
+  }
+
+  if (isGbpUsdBias && sessionBucket === 'LATE_NEWYORK') {
+    checks.push({ name: 'gbpusd_session_gate', passed: false, score: -100, note: sessionBucket });
+    score -= 100;
+    blocks.push('gbpusd_late_newyork_block');
+    reasons.push('gbpusd_late_newyork_block');
+  }
+
   if (isEurUsdBias && sessionBucket === 'LONDON') {
     if (!isEurUsdBreakoutRetest && (marketContext.regime !== 'TRENDING' || !trendAligned || rrFinal == null || rrFinal < londonMinFinalRr)) {
       checks.push({ name: 'eurusd_london_session_profile', passed: false, score: -30, note: sessionBucket });
@@ -415,6 +479,24 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     }
   }
 
+  if (isGbpUsdBias && sessionBucket === 'NEWYORK') {
+    const gbpNewYorkCleanTrend = marketContext.regime === 'TRENDING'
+      && newYorkStrictTrendAligned
+      && continuationCheck
+      && structureCheck
+      && pullbackOk
+      && cleanEmaAlignment
+      && !priceTooStretched
+      && !priceSlightlyStretched;
+
+    if (!gbpNewYorkCleanTrend) {
+      checks.push({ name: 'gbpusd_newyork_session_profile', passed: false, score: -35, note: sessionBucket });
+      score -= 35;
+      blocks.push('gbpusd_newyork_requires_clean_trend');
+      reasons.push('gbpusd_newyork_requires_clean_trend');
+    }
+  }
+
   if (requiresEurUsdH1Alignment && !h1BiasAligned) {
     checks.push({ name: 'h1_bias_alignment', passed: false, score: -25, note: h1BiasDirection || 'HOLD' });
     score -= 25;
@@ -422,6 +504,13 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
     reasons.push('weak_h1_bias');
   } else if (requiresEurUsdH1Alignment) {
     score += addCheck(checks, 'h1_bias_alignment', true, 12, h1BiasDirection || direction);
+  }
+
+  if (isGbpUsdBias && !h1BiasAligned) {
+    checks.push({ name: 'gbpusd_h1_bias_alignment', passed: false, score: -30, note: h1BiasDirection || 'HOLD' });
+    score -= 30;
+    blocks.push('gbpusd_weak_h1_bias');
+    reasons.push('gbpusd_weak_h1_bias');
   }
 
   if (requiresEurUsdBiasHardening && !triggerConfirmed) {
@@ -437,6 +526,13 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
       10,
       direction === 'BUY' ? 'long_confirmed' : 'short_confirmed',
     );
+  }
+
+  if (isGbpUsdBias && !triggerConfirmed) {
+    checks.push({ name: 'gbpusd_trigger_candle', passed: false, score: -30, note: 'missing_trigger_candle' });
+    score -= 30;
+    blocks.push('gbpusd_missing_trigger_candle');
+    reasons.push('gbpusd_missing_trigger_candle');
   }
 
   if (requiresEurUsdBiasHardening && recentFailedZone && recentFailedZone.active) {
@@ -559,6 +655,17 @@ async function evaluateHybridDecision(profile, candidate = {}, options = {}) {
   let decision = 'REJECT';
 
   const forceReject = blocks.includes('regime_dead')
+    || blocks.includes('gbpusd_missing_setup_type')
+    || blocks.includes('gbpusd_invalid_setup_type')
+    || blocks.includes('gbpusd_trend_continuation_requires_trending')
+    || blocks.includes('gbpusd_regime_block')
+    || blocks.includes('gbpusd_missing_stop_distance')
+    || blocks.includes('gbpusd_price_stretch_block')
+    || blocks.includes('gbpusd_weak_h1_bias')
+    || blocks.includes('gbpusd_missing_trigger_candle')
+    || blocks.includes('gbpusd_asia_session_block')
+    || blocks.includes('gbpusd_late_newyork_block')
+    || blocks.includes('gbpusd_newyork_requires_clean_trend')
     || blocks.includes('eurusd_missing_setup_type')
     || blocks.includes('eurusd_invalid_setup_type')
     || blocks.includes('eurusd_trend_continuation_requires_trending')
