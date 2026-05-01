@@ -137,6 +137,49 @@ function buildEurUsdBiasDiagnosticEvent({
   };
 }
 
+function buildGateSnapshot(candidate = {}, hybridDecision = {}, profile = {}) {
+  const context = hybridDecision && hybridDecision.context && typeof hybridDecision.context === 'object'
+    ? hybridDecision.context
+    : {};
+  const marketContext = context.marketContext && typeof context.marketContext === 'object'
+    ? context.marketContext
+    : {};
+  const spread = context.spread && typeof context.spread === 'object' ? context.spread : {};
+  const indicators = candidate.indicators && typeof candidate.indicators === 'object' ? candidate.indicators : {};
+  const triggerCandle = indicators.triggerCandle && typeof indicators.triggerCandle === 'object' ? indicators.triggerCandle : {};
+  const h1Bias = indicators.h1Bias && typeof indicators.h1Bias === 'object' ? indicators.h1Bias : {};
+  const direction = String(candidate.direction || candidate.side || candidate.signal || '').toUpperCase();
+  const triggerConfirmed = direction === 'BUY'
+    ? Boolean(triggerCandle.longConfirmed)
+    : direction === 'SELL'
+      ? Boolean(triggerCandle.shortConfirmed)
+      : false;
+  const h1Aligned = (String(h1Bias.direction || '').toUpperCase() === direction);
+  const session = Array.isArray(marketContext.sessionLabels)
+    ? marketContext.sessionLabels.join('|')
+    : (candidate.session || '');
+
+  return {
+    symbol: String(profile.symbol || candidate.symbol || '').toUpperCase(),
+    strategyName: candidate.strategyName || profile.strategyName || '',
+    setupType: candidate.setupType || 'UNKNOWN',
+    regime: marketContext.regime || candidate.regime || 'UNKNOWN',
+    session,
+    rrTp1: Number.isFinite(Number(hybridDecision.rrTp1)) ? Number(hybridDecision.rrTp1) : (Number.isFinite(Number(candidate.rrTp1)) ? Number(candidate.rrTp1) : null),
+    rrFinal: Number.isFinite(Number(hybridDecision.rrFinal)) ? Number(hybridDecision.rrFinal) : (Number.isFinite(Number(candidate.rrFinal)) ? Number(candidate.rrFinal) : null),
+    spread: Number.isFinite(Number(spread.spreadPct)) ? Number(spread.spreadPct) : null,
+    h1Aligned,
+    triggerConfirmed,
+    priceStretch: {
+      tooStretched: Array.isArray(candidate.strategyReasons) && candidate.strategyReasons.includes('price_too_stretched'),
+      slightlyStretched: Array.isArray(candidate.strategyReasons) && candidate.strategyReasons.includes('price_slightly_stretched'),
+    },
+    failedZoneActive: Boolean(candidate.recentFailedZone && candidate.recentFailedZone.active),
+    blocks: Array.isArray(hybridDecision.blocks) ? hybridDecision.blocks : [],
+    reasons: Array.isArray(hybridDecision.reasons) ? hybridDecision.reasons : [],
+  };
+}
+
 function profileUsesMt5(profile) {
   return profile.dataSource === 'mt5' || (!config.paperTradingMode && profile.broker === 'mt5');
 }
@@ -375,6 +418,7 @@ async function handleIncomingEvent(event) {
     reasons: hybridDecision.reasons,
     blocks: hybridDecision.blocks,
     sourceLabel: event.sourceLabel || event.chatId || 'external',
+    gateSnapshot: buildGateSnapshot(event, hybridDecision, profile),
     context: {
       quote: hybridDecision.context.quote,
       spread: hybridDecision.context.spread,
@@ -658,6 +702,10 @@ function startStrategyLoop() {
             blocks: hybridDecision.blocks,
             strategyName: profile.strategyName || config.strategy.name,
             signalConfluence,
+            gateSnapshot: buildGateSnapshot(prepared.normalizedSignal || {
+              symbol: profile.symbol,
+              strategyName: profile.strategyName || config.strategy.name,
+            }, hybridDecision, profile),
             context: {
               quote: hybridDecision.context.quote,
               spread: hybridDecision.context.spread,

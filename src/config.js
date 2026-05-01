@@ -282,17 +282,24 @@ function buildMt5TelegramProfiles() {
 function buildMt5StrategyProfiles() {
   const symbols = envListAllowBlank("MT5_STRATEGY_SYMBOLS", [])
     .map((symbol) => symbol.toUpperCase());
+  const enableGbpUsdStrategy = envFlag("MT5_ENABLE_GBPUSD_STRATEGY", false);
+  const strategySymbols = enableGbpUsdStrategy && !symbols.includes("GBPUSD")
+    ? [...symbols, "GBPUSD"]
+    : symbols;
   const strategyAssignments = envKeyValueMap("MT5_STRATEGY_ASSIGNMENTS");
   const dataSourceAssignments = envKeyValueMap("STRATEGY_DATA_SOURCE_ASSIGNMENTS");
 
-  return symbols.map((symbol) => ({
+  return strategySymbols.map((symbol) => ({
     id: `strategy:${symbol}`,
     symbol,
     market: inferMarket(symbol),
     dataSource: dataSourceAssignments[symbol] || "mt5",
     signalSource: "strategy",
     broker: "mt5",
-    strategyName: strategyAssignments[symbol] || process.env.STRATEGY_NAME || "trend",
+    strategyName: strategyAssignments[symbol]
+      || (symbol === "GBPUSD" ? "bias" : null)
+      || process.env.STRATEGY_NAME
+      || "trend",
   }));
 }
 
@@ -558,6 +565,29 @@ const config = {
         riskPerTrade: 0.0075,
         maxPositionSize: 5,
         maxDailyLossPct: 0.025,
+        maxOpenTrades: 1,
+      }),
+      GBPUSD: buildSymbolSetting("GBPUSD", {
+        mode: "STRATEGY_WITH_SIGNAL_CONFLUENCE",
+        primarySource: "STRATEGY",
+        allowTelegramTrigger: false,
+        requireTrendAlignment: true,
+        requireStructuredSignal: true,
+        requireTakeProfit: true,
+        blockNearNews: true,
+        useSignalConfluence: false,
+        allowedSessions: ["LONDON", "NEWYORK"],
+        minRiskReward: 1.5,
+        minTp1RiskReward: 1.0,
+        minFinalRiskReward: 1.5,
+        maxSpreadPct: 0.00025,
+        maxSignalAgeMinutes: 15,
+        maxEntryDeviationPct: 0.0012,
+        minApproveScore: 64,
+        minWatchScore: 45,
+        riskPerTrade: 0.0025,
+        maxPositionSize: 5,
+        maxDailyLossPct: 0.02,
         maxOpenTrades: 1,
       }),
     },

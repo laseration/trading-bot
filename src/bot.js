@@ -239,6 +239,16 @@ function hasPreferredExecutionSession(normalizedSignal) {
   return session.includes('LONDON') || session.includes('NEWYORK');
 }
 
+function resolveReversalCloseSide(existingPosition) {
+  const normalizedPosition = Number(existingPosition);
+
+  if (!Number.isFinite(normalizedPosition) || normalizedPosition === 0) {
+    return null;
+  }
+
+  return normalizedPosition > 0 ? 'SELL' : 'BUY';
+}
+
 function parseCsvLine(line) {
   const values = [];
   let current = '';
@@ -1113,9 +1123,25 @@ async function runBot(symbolOrProfile, options = {}) {
   // Handle position reversals: close opposing position first, then open new position
   if (isPositionReversal) {
     const opposingPosition = Math.abs(account.position);
-    const closeSide = signal === "BUY" ? "BUY" : "SELL";
-    
-    log(`[${symbol}] Position reversal detected. Closing opposing ${closeSide === "BUY" ? "SHORT" : "LONG"} position of ${opposingPosition} before opening new position`);
+    const closeSide = resolveReversalCloseSide(account.position);
+    const existingPositionSide = Number(account.position) > 0 ? 'LONG' : Number(account.position) < 0 ? 'SHORT' : 'FLAT';
+    const newSignalSide = signal;
+
+    if (!closeSide) {
+      log(
+        `[${symbol}] Reversal close skipped: unable to resolve existing position side `
+        + `existingPositionSide=${existingPositionSide} newSignalSide=${newSignalSide} reason=reversal_flatten_before_reverse`,
+      );
+      result.blocked = true;
+      result.action = 'reversal_close_side_unknown';
+      return result;
+    }
+
+    log(
+      `[${symbol}] Position reversal detected. existingPositionSide=${existingPositionSide} `
+      + `newSignalSide=${newSignalSide} closeSide=${closeSide} `
+      + `qty=${opposingPosition} reason=reversal_flatten_before_reverse`,
+    );
     
     // Step 1: Close the existing opposing position
     logTradeEvent({
