@@ -167,6 +167,13 @@ Live MT5 trading:
 - Set `PAPER_TRADING_MODE=false` only when you want the bot to place real MT5 orders
 - On startup the bot now rejects MT5 mode if the terminal is disconnected or its latest quote timestamp is older than `MT5_MAX_QUOTE_AGE_MS`
 
+Demo MT5 connectivity test:
+
+- Start the demo bridge first: `npm run bridge:demo`
+- Then run one explicit demo test trade: `npm run test:mt5-demo-trade`
+- Optional overrides: `DEMO_TEST_TRADE_SYMBOL`, `DEMO_TEST_TRADE_SIDE`, `DEMO_TEST_TRADE_QTY`
+- This is not a strategy trade. It is a demo-only MT5 connectivity test that refuses to run unless `TRADING_ENV=demo`, paper mode is off, the bridge is connected, the server looks like demo, and the quote is fresh.
+
 If your installed desktop terminal is already tied to the wrong broker server, use a separate portable MT5 copy for the bridge:
 
 - Copy the MT5 installation folder to a writable location such as `runtime/mt5-portable`

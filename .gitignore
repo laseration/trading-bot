@@ -10,3 +10,12 @@ logs/*
 !logs/.gitkeep
 runtime/
 *.pid
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+node_modules/
+.venv/
+logs/*.log
+runtime/
