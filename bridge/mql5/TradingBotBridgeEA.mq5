@@ -145,6 +145,7 @@ bool EnsureFolders()
   {
    FolderCreate(BridgeRoot,FILE_COMMON);
    FolderCreate(BridgeRoot+"\\requests",FILE_COMMON);
+   FolderCreate(BridgeRoot+"\\processing",FILE_COMMON);
    FolderCreate(BridgeRoot+"\\responses",FILE_COMMON);
    FolderCreate(BridgeRoot+"\\status",FILE_COMMON);
    return(true);
@@ -894,11 +895,18 @@ bool HandleModify(const string request_id,const string &keys[],const string &val
 void ProcessRequestFile(const string filename)
   {
    string request_path=BridgeRoot+"\\requests\\"+filename;
+   string processing_path=BridgeRoot+"\\processing\\"+filename;
    string keys[];
    string values[];
 
-   if(!ReadKeyValueFile(request_path,keys,values))
+   if(!FileMove(request_path,FILE_COMMON,processing_path,FILE_COMMON))
       return;
+
+   if(!ReadKeyValueFile(processing_path,keys,values))
+     {
+      FileDelete(processing_path,FILE_COMMON);
+      return;
+     }
 
    string request_id=TrimValue(GetMapValue(keys,values,"id"));
    string action=LowerValue(TrimValue(GetMapValue(keys,values,"action")));
@@ -906,7 +914,7 @@ void ProcessRequestFile(const string filename)
 
    if(request_id=="")
      {
-      FileDelete(request_path,FILE_COMMON);
+      FileDelete(processing_path,FILE_COMMON);
       return;
      }
 
@@ -932,7 +940,7 @@ void ProcessRequestFile(const string filename)
       BuildErrorResponse(lines,request_id,"Unsupported action: "+action,404);
 
    WriteLines(BridgeRoot+"\\responses\\"+request_id+".res",lines);
-   FileDelete(request_path,FILE_COMMON);
+   FileDelete(processing_path,FILE_COMMON);
   }
 
 //+------------------------------------------------------------------+
