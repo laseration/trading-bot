@@ -562,6 +562,49 @@ function logSetupLifecycle(symbol, normalizedSignal = {}, state, details = '') {
   );
 }
 
+function formatEmaDiagnosticValue(value) {
+  return value == null || value === '' ? 'na' : String(value);
+}
+
+function logEmaPullbackDiagnostics(symbol, normalizedSignal = {}, hybridDecision = null) {
+  if (String(normalizedSignal.strategyName || '').toLowerCase() !== 'ema_pullback') {
+    return;
+  }
+
+  const indicators = normalizedSignal.indicators && typeof normalizedSignal.indicators === 'object'
+    ? normalizedSignal.indicators
+    : {};
+  const diagnostics = indicators.emaPullback && typeof indicators.emaPullback === 'object'
+    ? indicators.emaPullback
+    : {};
+  const decision = hybridDecision ? hybridDecision.decision : 'HOLD';
+  const blocks = hybridDecision && Array.isArray(hybridDecision.blocks)
+    ? hybridDecision.blocks.join('|')
+    : '';
+  const reasons = hybridDecision && Array.isArray(hybridDecision.reasons) && hybridDecision.reasons.length > 0
+    ? hybridDecision.reasons.join('|')
+    : (Array.isArray(normalizedSignal.strategyReasons) ? normalizedSignal.strategyReasons.join('|') : '');
+
+  log(
+    `[EMA_PULLBACK] ${String(symbol || normalizedSignal.symbol || '').toUpperCase()}`
+    + ` decision=${decision}`
+    + ` signal=${normalizedSignal.direction || 'na'}`
+    + ` emaDirection=${formatEmaDiagnosticValue(diagnostics.emaDirection)}`
+    + ` trendAligned=${formatEmaDiagnosticValue(diagnostics.trendAligned)}`
+    + ` pullbackDistanceAtr=${formatEmaDiagnosticValue(diagnostics.pullbackDistanceAtr)}`
+    + ` rsi=${formatEmaDiagnosticValue(diagnostics.rsi)}`
+    + ` atr=${formatEmaDiagnosticValue(diagnostics.atr)}`
+    + ` stopDistance=${formatEmaDiagnosticValue(diagnostics.stopDistance)}`
+    + ` rrTp1=${formatEmaDiagnosticValue(diagnostics.rrTp1 ?? normalizedSignal.rrTp1)}`
+    + ` rrFinal=${formatEmaDiagnosticValue(diagnostics.rrFinal ?? normalizedSignal.rrFinal)}`
+    + ` session=${formatEmaDiagnosticValue(diagnostics.session || normalizedSignal.session)}`
+    + ` regime=${formatEmaDiagnosticValue(diagnostics.regime || normalizedSignal.regime)}`
+    + ` adx=${formatEmaDiagnosticValue(diagnostics.adx)}`
+    + ` reasons=${reasons || 'none'}`
+    + ` blocks=${blocks || 'none'}`,
+  );
+}
+
 function startStrategyLoop() {
   if (strategyProfiles.length === 0) {
     return;
@@ -626,6 +669,7 @@ function startStrategyLoop() {
               + ` regime=${prepared.normalizedSignal.regime || 'na'}`
               + ' action=HOLD',
             );
+            logEmaPullbackDiagnostics(profile.symbol, prepared.normalizedSignal, null);
             logSetupLifecycle(
               profile.symbol,
               prepared.normalizedSignal,
@@ -686,6 +730,7 @@ function startStrategyLoop() {
               + ` regime=${prepared.normalizedSignal.regime || 'na'}`
               + ` action=${hybridDecision.decision}`,
             );
+            logEmaPullbackDiagnostics(profile.symbol, prepared.normalizedSignal, hybridDecision);
           }
 
           if (hybridDecision.decision === 'APPROVE' && prepared.normalizedSignal) {

@@ -799,6 +799,246 @@ function evaluateTrendStrategy(bars, options = {}) {
   };
 }
 
+function formatDiagnosticNumber(value, digits = 2) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Number(numeric.toFixed(digits)) : null;
+}
+
+function buildEmaPullbackDiagnostics({
+  context,
+  trendDirection,
+  distanceAtr,
+  emaFast,
+  emaSlow,
+  stopDistance,
+  riskMetrics,
+  confirmation,
+  pullbackOk,
+  continuationOk,
+  activeCandle,
+  notOverextended,
+  momentumOk,
+}) {
+  const session = Array.isArray(context.sessionLabels) && context.sessionLabels.length > 0
+    ? context.sessionLabels.join('|')
+    : 'none';
+  const alignedTimeframes = confirmation.confirmations
+    .filter((entry) => entry.direction === trendDirection)
+    .map((entry) => entry.timeframe);
+
+  return {
+    emaDirection: trendDirection,
+    trendAligned: confirmation.isAligned,
+    alignedTimeframes,
+    requiredTimeframes: confirmation.requiredCount,
+    pullbackDistanceAtr: formatDiagnosticNumber(distanceAtr, 2),
+    pullbackOk,
+    continuationOk,
+    activeCandle,
+    notOverextended,
+    rsi: formatDiagnosticNumber(context.rsi, 1),
+    rsiOk: momentumOk,
+    atr: formatDiagnosticNumber(context.atr, 6),
+    stopDistance: formatDiagnosticNumber(stopDistance, 6),
+    rrTp1: riskMetrics.rrTp1,
+    rrFinal: riskMetrics.rrFinal,
+    session,
+    regime: context.regime || 'UNKNOWN',
+    adx: formatDiagnosticNumber(context.adx, 1),
+    adxOk: Number.isFinite(Number(context.adx)) && Number(context.adx) >= Number(config.strategy.adxMin || 0),
+  };
+}
+
+function buildEmaPullbackHold(context, reasons, diagnostics, trendDirection) {
+  return buildHoldResult(
+    { ...context, emaPullback: diagnostics },
+    reasons,
+    {
+      strategyName: 'ema_pullback',
+      setupType: 'ema_pullback_hold',
+      biasDirection: trendDirection === 'HOLD' ? null : trendDirection,
+      biasStrength: diagnostics && diagnostics.pullbackDistanceAtr != null && diagnostics.pullbackDistanceAtr <= 0.45 ? 'moderate' : 'weak',
+      regime: context.regime,
+    },
+  );
+}
+
+function evaluateEmaPullbackStrategy(bars, options = {}) {
+  const baseContext = buildBaseContext(bars, {
+    ...options,
+    ignoreAdxFilter: true,
+  });
+  const marketSummary = summarizeMarketContext(bars, options);
+  const context = baseContext.hold
+    ? {
+        ...(baseContext.hold.indicators || {}),
+        sessionLabels: marketSummary.sessionLabels || [],
+        sessionOpen: marketSummary.sessionOpen,
+        regime: marketSummary.regime || null,
+        adx: marketSummary.adx ?? (baseContext.hold.indicators && baseContext.hold.indicators.adx),
+        atr: marketSummary.atr ?? (baseContext.hold.indicators && baseContext.hold.indicators.atr),
+        rsi: marketSummary.rsi ?? (baseContext.hold.indicators && baseContext.hold.indicators.rsi),
+      }
+    : {
+        ...baseContext,
+        sessionLabels: marketSummary.sessionLabels || [],
+        sessionOpen: marketSummary.sessionOpen,
+        regime: marketSummary.regime || baseContext.regime || null,
+      };
+
+  if (baseContext.hold) {
+    return {
+      ...baseContext.hold,
+      strategyName: 'ema_pullback',
+      setupType: 'ema_pullback_hold',
+      indicators: {
+        ...context,
+        emaPullback: {
+          emaDirection: 'UNKNOWN',
+          trendAligned: false,
+          pullbackDistanceAtr: null,
+          rsi: formatDiagnosticNumber(context.rsi, 1),
+          atr: formatDiagnosticNumber(context.atr, 6),
+          stopDistance: null,
+          rrTp1: null,
+          rrFinal: null,
+          session: Array.isArray(context.sessionLabels) && context.sessionLabels.length > 0 ? context.sessionLabels.join('|') : 'none',
+          regime: context.regime || 'UNKNOWN',
+          adx: formatDiagnosticNumber(context.adx, 1),
+        },
+      },
+    };
+  }
+
+  const closes = bars.map((bar) => Number(bar.close));
+  const emaFast = calculateEma(closes, config.strategy.shortMa);
+  const emaSlow = calculateEma(closes, config.strategy.longMa);
+  const latestBar = context.latestBar || bars[bars.length - 1] || {};
+  const previousBar = bars[bars.length - 2] || {};
+  const latestClose = Number(context.latestClose);
+  const previousClose = Number(previousBar.close);
+  const atr = Number(context.atr);
+
+  if (!(Number.isFinite(emaFast) && Number.isFinite(emaSlow) && Number.isFinite(latestClose) && Number.isFinite(atr) && atr > 0)) {
+    const diagnostics = {
+      emaDirection: 'UNKNOWN',
+      trendAligned: false,
+      pullbackDistanceAtr: null,
+      rsi: formatDiagnosticNumber(context.rsi, 1),
+      atr: formatDiagnosticNumber(context.atr, 6),
+      stopDistance: null,
+      rrTp1: null,
+      rrFinal: null,
+      session: Array.isArray(context.sessionLabels) ? context.sessionLabels.join('|') : 'none',
+      regime: context.regime || 'UNKNOWN',
+      adx: formatDiagnosticNumber(context.adx, 1),
+    };
+    return buildEmaPullbackHold(
+      { ...context, emaFast, emaSlow },
+      ['insufficient_ema_pullback_data'],
+      diagnostics,
+      'HOLD',
+    );
+  }
+
+  const trendDirection = emaFast > emaSlow ? 'BUY' : emaFast < emaSlow ? 'SELL' : 'HOLD';
+  const distanceAtr = Math.abs(latestClose - emaFast) / atr;
+  const pullbackWindow = bars.slice(Math.max(0, bars.length - 5));
+  const touchedFastFromAbove = pullbackWindow.some((bar) => Number(bar.low) <= emaFast + atr * 0.2);
+  const touchedFastFromBelow = pullbackWindow.some((bar) => Number(bar.high) >= emaFast - atr * 0.2);
+  const continuationBodyAtr = Number.isFinite(Number(latestBar.open))
+    ? Math.abs(latestClose - Number(latestBar.open)) / atr
+    : 0;
+  const activeCandle = continuationBodyAtr >= Math.max(0.12, Number(config.strategy.biasEntryBodyAtrMin || 0.12));
+  const notOverextended = distanceAtr <= 0.75;
+  const confirmation = evaluateTimeframeConfirmation(trendDirection, options.confirmationBarsByTimeframe);
+  const targets = trendDirection === 'BUY' || trendDirection === 'SELL'
+    ? deriveTargets(latestClose, trendDirection, atr)
+    : { stopDistance: null, stopLoss: null, takeProfits: [] };
+  const riskMetrics = trendDirection === 'BUY' || trendDirection === 'SELL'
+    ? calculateRiskMetrics(trendDirection, latestClose, targets.stopLoss, targets.takeProfits)
+    : { rrTp1: null, rrFinal: null };
+  const momentumOk = trendDirection === 'BUY'
+    ? Number.isFinite(context.rsi) && context.rsi >= Math.max(45, Number(config.strategy.rsiLongMin || 40)) && context.rsi <= 72
+    : trendDirection === 'SELL'
+      ? Number.isFinite(context.rsi) && context.rsi <= Math.min(55, Number(config.strategy.rsiShortMax || 60)) && context.rsi >= 28
+      : false;
+  const adxOk = Number.isFinite(Number(context.adx)) && Number(context.adx) >= Number(config.strategy.adxMin || 0);
+  const pullbackOk = trendDirection === 'BUY'
+    ? touchedFastFromAbove || distanceAtr <= 0.4
+    : trendDirection === 'SELL'
+      ? touchedFastFromBelow || distanceAtr <= 0.4
+      : false;
+  const continuationOk = trendDirection === 'BUY'
+    ? latestClose >= emaFast - atr * 0.1 && (!Number.isFinite(previousClose) || latestClose >= previousClose)
+    : trendDirection === 'SELL'
+      ? latestClose <= emaFast + atr * 0.1 && (!Number.isFinite(previousClose) || latestClose <= previousClose)
+      : false;
+  const diagnostics = buildEmaPullbackDiagnostics({
+    context,
+    trendDirection,
+    distanceAtr,
+    emaFast,
+    emaSlow,
+    stopDistance: targets.stopDistance,
+    riskMetrics,
+    confirmation,
+    pullbackOk,
+    continuationOk,
+    activeCandle,
+    notOverextended,
+    momentumOk,
+  });
+  const indicators = {
+    ...context,
+    emaFast,
+    emaSlow,
+    trendDirection,
+    distanceAtr,
+    touchedFastFromAbove,
+    touchedFastFromBelow,
+    continuationBodyAtr,
+    confirmationTimeframes: confirmation.confirmations,
+    emaPullback: diagnostics,
+  };
+
+  if (
+    (trendDirection === 'BUY' || trendDirection === 'SELL')
+    && momentumOk
+    && pullbackOk
+    && continuationOk
+    && notOverextended
+    && activeCandle
+    && adxOk
+    && confirmation.isAligned
+  ) {
+    return buildSetup(trendDirection, latestClose, atr, indicators, {
+      strategyName: 'ema_pullback',
+      setupType: 'ema_pullback',
+      biasDirection: trendDirection,
+      biasStrength: distanceAtr <= 0.4 ? 'strong' : 'moderate',
+      regime: context.regime,
+      confidencePrefix: `EMA Pullback | dir=${trendDirection} | pullback=${distanceAtr.toFixed(2)}ATR | RSI ${context.rsi.toFixed(1)} | ATR ${atr.toFixed(6)} | RR ${riskMetrics.rrFinal ?? 'na'} | session ${diagnostics.session} | regime ${diagnostics.regime}`,
+      confirmations: confirmation.confirmations,
+      alignedTimeframes: diagnostics.alignedTimeframes,
+    });
+  }
+
+  const reasons = [];
+
+  if (trendDirection === 'HOLD') reasons.push('ema_trend_flat');
+  if (!adxOk) reasons.push('trend_strength_too_low');
+  if (!confirmation.isAligned) reasons.push('timeframe_alignment');
+  if (!pullbackOk) reasons.push('pullback_not_in_zone');
+  if (!continuationOk) reasons.push('continuation_not_confirmed');
+  if (!momentumOk) reasons.push('rsi_not_confirmed');
+  if (!notOverextended) reasons.push('price_too_extended');
+  if (!activeCandle) reasons.push('trigger_candle_too_small');
+  if (reasons.length === 0) reasons.push('ema_pullback_not_confirmed');
+
+  return buildEmaPullbackHold(indicators, reasons, diagnostics, trendDirection);
+}
+
 function evaluateBreakoutStrategy(bars, options = {}) {
   const context = buildBaseContext(bars, options);
 
@@ -1555,6 +1795,7 @@ function evaluateSupportResistanceStrategy(bars, options = {}) {
 
 const STRATEGIES = {
   trend: evaluateTrendStrategy,
+  ema_pullback: evaluateEmaPullbackStrategy,
   bias: evaluateBiasStrategy,
   breakout: evaluateBreakoutStrategy,
   mean_reversion: evaluateMeanReversionStrategy,
