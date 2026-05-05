@@ -24,14 +24,6 @@ async function requestBridge(path, options = {}) {
   const timeout = setTimeout(() => controller.abort(), config.mt5Bridge.timeoutMs);
   const method = options.method || 'POST';
   const payload = options.payload;
-  const requestLabel = [
-    method,
-    path,
-    payload && payload.symbol ? `symbol=${payload.symbol}` : null,
-    payload && payload.timeframe ? `timeframe=${payload.timeframe}` : null,
-    payload && payload.count ? `count=${payload.count}` : null,
-    payload && payload.limit ? `limit=${payload.limit}` : null,
-  ].filter(Boolean).join(' ');
 
   try {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -51,12 +43,6 @@ async function requestBridge(path, options = {}) {
     }
 
     return response.json();
-  } catch (err) {
-    if (err && err.name === 'AbortError') {
-      throw new Error(`MT5 bridge request aborted after ${config.mt5Bridge.timeoutMs}ms: ${requestLabel}`);
-    }
-
-    throw err;
   } finally {
     clearTimeout(timeout);
   }
