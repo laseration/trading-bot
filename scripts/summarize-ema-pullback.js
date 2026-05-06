@@ -3,24 +3,64 @@ const path = require('path');
 
 const repoRoot = path.join(__dirname, '..');
 const runtimeDir = path.join(repoRoot, 'runtime');
+const defaultBotLogPath = path.join(repoRoot, 'logs', 'bot.log');
 const NEAR_ADX_MIN = 10;
 const MAX_STRUCTURAL_PULLBACK_DISTANCE_ATR = 1.5;
 
-function findLatestRuntimeLog() {
-  if (!fs.existsSync(runtimeDir)) {
-    return null;
+function fileHasEmaDiagnostics(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8').includes('[EMA_PULLBACK]');
+  } catch (err) {
+    return false;
+  }
+}
+
+function getCandidateLogFiles() {
+  const candidates = [];
+
+  if (fs.existsSync(defaultBotLogPath)) {
+    const stat = fs.statSync(defaultBotLogPath);
+    candidates.push({ filePath: defaultBotLogPath, mtimeMs: stat.mtimeMs });
   }
 
-  const candidates = fs.readdirSync(runtimeDir)
-    .filter((name) => /^codex-demo-bot-.*\.out\.log$/i.test(name))
-    .map((name) => {
+  if (fs.existsSync(runtimeDir)) {
+    for (const name of fs.readdirSync(runtimeDir)) {
+      if (!/\.out\.log$/i.test(name)) {
+        continue;
+      }
+
       const filePath = path.join(runtimeDir, name);
       const stat = fs.statSync(filePath);
-      return { filePath, mtimeMs: stat.mtimeMs };
-    })
-    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+      candidates.push({ filePath, mtimeMs: stat.mtimeMs });
+    }
+  }
 
+  return candidates
+    .filter((candidate) => fileHasEmaDiagnostics(candidate.filePath))
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+}
+
+function findLatestRelevantLog() {
+  const candidates = getCandidateLogFiles();
   return candidates.length > 0 ? candidates[0].filePath : null;
+}
+
+function resolveInputPaths(args) {
+  if (args.length === 0 || (args.length === 1 && args[0] === '--latest')) {
+    const latest = findLatestRelevantLog();
+    return latest ? [latest] : [];
+  }
+
+  if (args.length === 1 && args[0] === '--all') {
+    return getCandidateLogFiles().map((candidate) => candidate.filePath);
+  }
+
+  if (args.length === 1 && !args[0].startsWith('--')) {
+    return [path.resolve(process.cwd(), args[0])];
+  }
+
+  console.error('Usage: node scripts/summarize-ema-pullback.js [--latest|--all|path/to/log]');
+  process.exit(1);
 }
 
 function parseValue(value) {
@@ -115,6 +155,10 @@ function hasAcceptablePullbackDistance(record) {
     && pullbackDistanceAtr <= MAX_STRUCTURAL_PULLBACK_DISTANCE_ATR;
 }
 
+function isTrendingRegime(record) {
+  return String(record.regime || '').toUpperCase() === 'TRENDING';
+}
+
 function isStructurallyValid(record) {
   return String(record.trendAligned).toLowerCase() === 'true'
     && isAcceptableRiskReward(record)
@@ -130,8 +174,12 @@ function isExecutionClose(record) {
 
   return String(record.decision || '').toUpperCase() === 'HOLD'
     && isStructurallyValid(record)
+    && isTrendingRegime(record)
     && Number.isFinite(adx)
     && adx >= NEAR_ADX_MIN
+    && !reasons.includes('trend_strength_too_low')
+    && !reasons.includes('price_too_extended')
+    && !reasons.includes('price_too_stretched')
     && !(failedContinuation && failedTrigger);
 }
 
@@ -141,25 +189,30 @@ function isWeakMarketStructural(record) {
 
   return isStructurallyValid(record)
     && !isExecutionClose(record)
-    && ((Number.isFinite(adx) && adx < NEAR_ADX_MIN) || regime === 'RANGING');
+    && (
+      (Number.isFinite(adx) && adx < NEAR_ADX_MIN)
+      || regime === 'RANGING'
+      || regime === 'UNSTABLE'
+      || (record.reasonsList || []).includes('trend_strength_too_low')
+    );
 }
 
 function main() {
-  const inputPath = process.argv[2]
-    ? path.resolve(process.cwd(), process.argv[2])
-    : findLatestRuntimeLog();
+  const inputPaths = resolveInputPaths(process.argv.slice(2));
 
-  if (!inputPath) {
-    console.error('No runtime/codex-demo-bot-*.out.log file found');
+  if (inputPaths.length === 0) {
+    console.error('No log file with [EMA_PULLBACK] diagnostics found');
     process.exit(1);
   }
 
-  if (!fs.existsSync(inputPath)) {
-    console.error(`Log file not found: ${inputPath}`);
-    process.exit(1);
+  for (const inputPath of inputPaths) {
+    if (!fs.existsSync(inputPath)) {
+      console.error(`Log file not found: ${inputPath}`);
+      process.exit(1);
+    }
   }
 
-  const lines = fs.readFileSync(inputPath, 'utf8').split(/\r?\n/);
+  const lines = inputPaths.flatMap((inputPath) => fs.readFileSync(inputPath, 'utf8').split(/\r?\n/));
   const records = lines.map(parseDiagnosticLine).filter(Boolean);
   const bySymbol = new Map();
   const byDecisionSignal = new Map();
@@ -187,7 +240,14 @@ function main() {
   const weakMarketStructuralRecords = records.filter(isWeakMarketStructural);
 
   console.log(`EMA Pullback Diagnostics Summary`);
-  console.log(`Log file: ${inputPath}`);
+  if (inputPaths.length === 1) {
+    console.log(`Log file: ${inputPaths[0]}`);
+  } else {
+    console.log(`Log files: ${inputPaths.length}`);
+    for (const inputPath of inputPaths) {
+      console.log(`  ${inputPath}`);
+    }
+  }
   console.log(`Total EMA_PULLBACK diagnostics found: ${records.length}`);
   console.log('');
   console.log('Count by symbol:');

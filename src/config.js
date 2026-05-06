@@ -423,6 +423,8 @@ const config = {
     enabled: envFlag("MT5_BRIDGE_ENABLED", false),
     baseUrl: process.env.MT5_BRIDGE_BASE_URL || "http://127.0.0.1:5001",
     timeoutMs: Number(process.env.MT5_BRIDGE_TIMEOUT_MS || defaultMt5BridgeTimeoutMs),
+    serializeRequests: envFlag("MT5_BRIDGE_SERIALIZE_REQUESTS", true),
+    barsCacheTtlMs: Number(process.env.MT5_BARS_CACHE_TTL_MS || 10000),
     maxQuoteAgeMs: Number(process.env.MT5_MAX_QUOTE_AGE_MS || 120000),
     maxFutureQuoteSkewMs: Number(process.env.MT5_MAX_FUTURE_QUOTE_SKEW_MS || 21600000),
     requireConnected: envFlag("MT5_REQUIRE_CONNECTED", true),

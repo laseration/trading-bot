@@ -760,6 +760,7 @@ function startStrategyLoop() {
           }, {
             sourceType: 'strategy',
             signalConfluence,
+            bars: prepared.entryBars,
           });
 
           if (prepared.normalizedSignal) {

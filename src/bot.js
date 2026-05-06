@@ -712,6 +712,7 @@ async function loadStrategySetup(profile, options = {}) {
 
   return {
     setup,
+    entryBars,
     latestPrice: Number(latestBar && latestBar.close),
     latestBarTime: latestBar && latestBar.time != null ? latestBar.time : null,
   };
@@ -723,6 +724,7 @@ async function prepareBotRun(symbolOrProfile, options = {}) {
   const cycleTimestamp = new Date().toISOString();
   let price = Number(options.price);
   let strategySetup = null;
+  let entryBars = null;
   let latestBarTime = null;
   const signalSource = options.signalSource || profile.signalSource || 'strategy';
 
@@ -730,6 +732,7 @@ async function prepareBotRun(symbolOrProfile, options = {}) {
     if (options.signal == null && signalSource === 'strategy') {
       const strategyEvaluation = await loadStrategySetup(profile, options);
       strategySetup = strategyEvaluation.setup;
+      entryBars = strategyEvaluation.entryBars;
       latestBarTime = strategyEvaluation.latestBarTime;
 
       if (Number.isFinite(Number(strategySetup && strategySetup.entry))) {
@@ -827,6 +830,7 @@ async function prepareBotRun(symbolOrProfile, options = {}) {
     signal,
     normalizedSignal,
     strategySetup,
+    entryBars,
   };
 }
 
