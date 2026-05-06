@@ -600,9 +600,25 @@ function logEmaPullbackDiagnostics(symbol, normalizedSignal = {}, hybridDecision
     + ` session=${formatEmaDiagnosticValue(diagnostics.session || normalizedSignal.session)}`
     + ` regime=${formatEmaDiagnosticValue(diagnostics.regime || normalizedSignal.regime)}`
     + ` adx=${formatEmaDiagnosticValue(diagnostics.adx)}`
+    + ` validationMode=${formatEmaDiagnosticValue(diagnostics.validationMode)}`
+    + ` validationRelaxedApproval=${formatEmaDiagnosticValue(diagnostics.validationRelaxedApproval)}`
+    + ` validationRelaxedGate=${formatEmaDiagnosticValue(diagnostics.validationRelaxedGate)}`
     + ` reasons=${reasons || 'none'}`
     + ` blocks=${blocks || 'none'}`,
   );
+}
+
+function buildEmaPullbackApprovalDetails(normalizedSignal = {}, hybridDecision = {}) {
+  const details = [`score=${hybridDecision.score}`];
+  const strategyReasons = Array.isArray(normalizedSignal.strategyReasons)
+    ? normalizedSignal.strategyReasons
+    : [];
+
+  if (strategyReasons.includes('validation_relaxed_approval')) {
+    details.push('reason=validation_relaxed_approval');
+  }
+
+  return details.join(' ');
 }
 
 function startStrategyLoop() {
@@ -734,7 +750,12 @@ function startStrategyLoop() {
           }
 
           if (hybridDecision.decision === 'APPROVE' && prepared.normalizedSignal) {
-            logSetupLifecycle(profile.symbol, prepared.normalizedSignal, 'approved', `score=${hybridDecision.score}`);
+            logSetupLifecycle(
+              profile.symbol,
+              prepared.normalizedSignal,
+              'approved',
+              buildEmaPullbackApprovalDetails(prepared.normalizedSignal, hybridDecision),
+            );
           }
 
           logDecision({

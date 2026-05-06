@@ -265,6 +265,55 @@ function applyDemoStressOverrides(config) {
   return config;
 }
 
+function applyEmaPullbackValidationOverrides(config) {
+  const isValidationMode = envMode === "demo" && envFlag("EMA_PULLBACK_VALIDATION_MODE", false);
+  const maxValidationPositionSize = Math.min(
+    Math.max(envOptionalNumber("EMA_PULLBACK_VALIDATION_MAX_POSITION_SIZE", 0.01) || 0.01, 0.01),
+    0.02,
+  );
+
+  config.emaPullbackValidation = {
+    enabled: isValidationMode,
+    adxMin: envOptionalNumber("EMA_PULLBACK_VALIDATION_ADX_MIN", 12) || 12,
+    maxPositionSize: maxValidationPositionSize,
+  };
+
+  if (!isValidationMode) {
+    return config;
+  }
+
+  config.profiles = (config.profiles || []).filter((profile) => profile.signalSource !== "telegram");
+  config.symbols = config.profiles
+    .filter((profile) => profile.signalSource === "strategy")
+    .map((profile) => profile.symbol);
+
+  const emaPullbackSymbols = new Set(
+    config.profiles
+      .filter((profile) => String(profile.strategyName || config.strategy.name).toLowerCase() === "ema_pullback")
+      .map((profile) => String(profile.symbol || "").toUpperCase())
+      .filter(Boolean),
+  );
+
+  for (const symbol of emaPullbackSymbols) {
+    if (!config.hybrid.symbols[symbol]) {
+      config.hybrid.symbols[symbol] = buildSymbolSetting(symbol, {
+        primarySource: "STRATEGY",
+        allowTelegramTrigger: false,
+        maxPositionSize: maxValidationPositionSize,
+      });
+    }
+
+    config.hybrid.symbols[symbol].primarySource = "STRATEGY";
+    config.hybrid.symbols[symbol].allowTelegramTrigger = false;
+    config.hybrid.symbols[symbol].maxPositionSize = Math.min(
+      Number(config.hybrid.symbols[symbol].maxPositionSize || maxValidationPositionSize),
+      maxValidationPositionSize,
+    );
+  }
+
+  return config;
+}
+
 function buildMt5TelegramProfiles() {
   const symbols = envListAllowBlank("MT5_TELEGRAM_SYMBOLS", ["EURUSD", "XAUUSD"])
     .map((symbol) => symbol.toUpperCase());
@@ -626,4 +675,4 @@ config.getSymbolSettings = function getSymbolSettings(symbol) {
   });
 };
 
-module.exports = applyDemoStressOverrides(config);
+module.exports = applyEmaPullbackValidationOverrides(applyDemoStressOverrides(config));

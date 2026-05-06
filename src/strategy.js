@@ -473,6 +473,7 @@ function buildSetup(direction, entry, atr, indicators, extras = {}) {
 
   return {
     signal: direction,
+    reasons: Array.isArray(extras.reasons) ? extras.reasons : [],
     strategyName,
     strategyFamily: extras.strategyFamily || strategyName,
     setupType,
@@ -818,6 +819,11 @@ function buildEmaPullbackDiagnostics({
   activeCandle,
   notOverextended,
   momentumOk,
+  regimeOk,
+  rrOk,
+  adxMin,
+  validationRelaxedApproval,
+  validationRelaxedGate,
 }) {
   const session = Array.isArray(context.sessionLabels) && context.sessionLabels.length > 0
     ? context.sessionLabels.join('|')
@@ -845,7 +851,13 @@ function buildEmaPullbackDiagnostics({
     session,
     regime: context.regime || 'UNKNOWN',
     adx: formatDiagnosticNumber(context.adx, 1),
-    adxOk: Number.isFinite(Number(context.adx)) && Number(context.adx) >= Number(config.strategy.adxMin || 0),
+    adxOk: Number.isFinite(Number(context.adx)) && Number(context.adx) >= Number(adxMin || config.strategy.adxMin || 0),
+    adxMin,
+    regimeOk,
+    rrOk,
+    validationMode: Boolean(config.emaPullbackValidation && config.emaPullbackValidation.enabled),
+    validationRelaxedApproval,
+    validationRelaxedGate: validationRelaxedGate || null,
   };
 }
 
@@ -864,6 +876,12 @@ function buildEmaPullbackHold(context, reasons, diagnostics, trendDirection) {
 }
 
 function evaluateEmaPullbackStrategy(bars, options = {}) {
+  const validationMode = Boolean(config.emaPullbackValidation && config.emaPullbackValidation.enabled);
+  const validationAdxMin = Number(config.emaPullbackValidation && config.emaPullbackValidation.adxMin);
+  const emaPullbackAdxMin = validationMode && Number.isFinite(validationAdxMin)
+    ? validationAdxMin
+    : Number(config.strategy.adxMin || 0);
+  const strongAdxMin = Math.max(Number(config.strategy.adxMin || 0) + 5, emaPullbackAdxMin + 5);
   const baseContext = buildBaseContext(bars, {
     ...options,
     ignoreAdxFilter: true,
@@ -958,12 +976,19 @@ function evaluateEmaPullbackStrategy(bars, options = {}) {
   const riskMetrics = trendDirection === 'BUY' || trendDirection === 'SELL'
     ? calculateRiskMetrics(trendDirection, latestClose, targets.stopLoss, targets.takeProfits)
     : { rrTp1: null, rrFinal: null };
+  const symbolSettings = config.getSymbolSettings(options.symbol);
+  const rrOk = Number.isFinite(Number(riskMetrics.rrTp1))
+    && riskMetrics.rrTp1 >= Number(symbolSettings.minTp1RiskReward || 1)
+    && Number.isFinite(Number(riskMetrics.rrFinal))
+    && riskMetrics.rrFinal >= Number(symbolSettings.minFinalRiskReward || symbolSettings.minRiskReward || 1.4);
   const momentumOk = trendDirection === 'BUY'
     ? Number.isFinite(context.rsi) && context.rsi >= Math.max(45, Number(config.strategy.rsiLongMin || 40)) && context.rsi <= 72
     : trendDirection === 'SELL'
       ? Number.isFinite(context.rsi) && context.rsi <= Math.min(55, Number(config.strategy.rsiShortMax || 60)) && context.rsi >= 28
       : false;
-  const adxOk = Number.isFinite(Number(context.adx)) && Number(context.adx) >= Number(config.strategy.adxMin || 0);
+  const adxOk = Number.isFinite(Number(context.adx)) && Number(context.adx) >= emaPullbackAdxMin;
+  const adxStrong = Number.isFinite(Number(context.adx)) && Number(context.adx) >= strongAdxMin;
+  const regimeOk = String(context.regime || '').toUpperCase() === 'TRENDING';
   const pullbackOk = trendDirection === 'BUY'
     ? touchedFastFromAbove || distanceAtr <= 0.4
     : trendDirection === 'SELL'
@@ -974,6 +999,29 @@ function evaluateEmaPullbackStrategy(bars, options = {}) {
     : trendDirection === 'SELL'
       ? latestClose <= emaFast + atr * 0.1 && (!Number.isFinite(previousClose) || latestClose <= previousClose)
       : false;
+  const commonApprovalGatesOk = (trendDirection === 'BUY' || trendDirection === 'SELL')
+    && pullbackOk
+    && continuationOk
+    && notOverextended
+    && adxOk
+    && regimeOk
+    && rrOk
+    && confirmation.isAligned;
+  const validationRsiSoftApproval = validationMode
+    && commonApprovalGatesOk
+    && activeCandle
+    && !momentumOk;
+  const validationTriggerSoftApproval = validationMode
+    && commonApprovalGatesOk
+    && momentumOk
+    && !activeCandle
+    && adxStrong;
+  const validationRelaxedApproval = validationRsiSoftApproval || validationTriggerSoftApproval;
+  const validationRelaxedGate = validationRsiSoftApproval
+    ? 'rsi_soft_penalty'
+    : validationTriggerSoftApproval
+      ? 'trigger_candle_soft_penalty'
+      : null;
   const diagnostics = buildEmaPullbackDiagnostics({
     context,
     trendDirection,
@@ -988,6 +1036,11 @@ function evaluateEmaPullbackStrategy(bars, options = {}) {
     activeCandle,
     notOverextended,
     momentumOk,
+    regimeOk,
+    rrOk,
+    adxMin: emaPullbackAdxMin,
+    validationRelaxedApproval,
+    validationRelaxedGate,
   });
   const indicators = {
     ...context,
@@ -1000,17 +1053,13 @@ function evaluateEmaPullbackStrategy(bars, options = {}) {
     continuationBodyAtr,
     confirmationTimeframes: confirmation.confirmations,
     emaPullback: diagnostics,
+    validationRelaxedApproval,
+    validationRelaxedGate,
   };
 
   if (
-    (trendDirection === 'BUY' || trendDirection === 'SELL')
-    && momentumOk
-    && pullbackOk
-    && continuationOk
-    && notOverextended
-    && activeCandle
-    && adxOk
-    && confirmation.isAligned
+    commonApprovalGatesOk
+    && ((momentumOk && activeCandle) || validationRelaxedApproval)
   ) {
     return buildSetup(trendDirection, latestClose, atr, indicators, {
       strategyName: 'ema_pullback',
@@ -1021,6 +1070,7 @@ function evaluateEmaPullbackStrategy(bars, options = {}) {
       confidencePrefix: `EMA Pullback | dir=${trendDirection} | pullback=${distanceAtr.toFixed(2)}ATR | RSI ${context.rsi.toFixed(1)} | ATR ${atr.toFixed(6)} | RR ${riskMetrics.rrFinal ?? 'na'} | session ${diagnostics.session} | regime ${diagnostics.regime}`,
       confirmations: confirmation.confirmations,
       alignedTimeframes: diagnostics.alignedTimeframes,
+      reasons: validationRelaxedApproval ? ['validation_relaxed_approval'] : [],
     });
   }
 
@@ -1028,12 +1078,14 @@ function evaluateEmaPullbackStrategy(bars, options = {}) {
 
   if (trendDirection === 'HOLD') reasons.push('ema_trend_flat');
   if (!adxOk) reasons.push('trend_strength_too_low');
+  if (!regimeOk) reasons.push(`regime_${String(context.regime || 'unknown').toLowerCase()}_blocked`);
   if (!confirmation.isAligned) reasons.push('timeframe_alignment');
   if (!pullbackOk) reasons.push('pullback_not_in_zone');
   if (!continuationOk) reasons.push('continuation_not_confirmed');
   if (!momentumOk) reasons.push('rsi_not_confirmed');
   if (!notOverextended) reasons.push('price_too_extended');
   if (!activeCandle) reasons.push('trigger_candle_too_small');
+  if (!rrOk) reasons.push('risk_reward_below_minimum');
   if (reasons.length === 0) reasons.push('ema_pullback_not_confirmed');
 
   return buildEmaPullbackHold(indicators, reasons, diagnostics, trendDirection);
