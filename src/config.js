@@ -70,6 +70,8 @@ if (envMode) {
   loadEnvFile(path.join(repoRoot, ".env"), { override: true });
 }
 
+const defaultMt5BridgeTimeoutMs = envMode === "demo" ? 60000 : 5000;
+
 function envFlag(name, defaultValue = false) {
   const rawValue = process.env[name];
 
@@ -420,7 +422,7 @@ const config = {
   mt5Bridge: {
     enabled: envFlag("MT5_BRIDGE_ENABLED", false),
     baseUrl: process.env.MT5_BRIDGE_BASE_URL || "http://127.0.0.1:5001",
-    timeoutMs: Number(process.env.MT5_BRIDGE_TIMEOUT_MS || 5000),
+    timeoutMs: Number(process.env.MT5_BRIDGE_TIMEOUT_MS || defaultMt5BridgeTimeoutMs),
     maxQuoteAgeMs: Number(process.env.MT5_MAX_QUOTE_AGE_MS || 120000),
     maxFutureQuoteSkewMs: Number(process.env.MT5_MAX_FUTURE_QUOTE_SKEW_MS || 21600000),
     requireConnected: envFlag("MT5_REQUIRE_CONNECTED", true),
@@ -429,6 +431,13 @@ const config = {
     commentPrefix: process.env.MT5_COMMENT_PREFIX || "trading-bot",
     autoStartHttpBridge: envFlag("MT5_AUTO_START_HTTP_BRIDGE", false),
     autoStartTerminal: envFlag("MT5_AUTO_START_TERMINAL", false),
+  },
+  startup: {
+    terminateOldBot: envFlag("STARTUP_TERMINATE_OLD_BOT", false),
+    terminateOldBridge: envFlag("STARTUP_TERMINATE_OLD_BRIDGE", false),
+    cleanStaleLocks: envFlag("STARTUP_CLEAN_STALE_LOCKS", true),
+    bridgeHealthRetries: Number(process.env.STARTUP_BRIDGE_HEALTH_RETRIES || 3),
+    bridgeHealthRetryDelayMs: Number(process.env.STARTUP_BRIDGE_HEALTH_RETRY_DELAY_MS || 2000),
   },
   strategy: {
     name: process.env.STRATEGY_NAME || "trend",

@@ -5,8 +5,9 @@ const { log, logDecision } = require('./logger');
 const { prepareBotRun, runBot } = require('./bot');
 const { getRecentSignalConfluence, pollTelegramSignals } = require('./telegram');
 const { pollNewsSignals } = require('./newsAnalyzer');
-const { getLatestMt5Quote, getMt5Health } = require('./mt5Bridge');
-const { ensureMt5RuntimeReady } = require('./mt5Startup');
+const { getLatestMt5Quote } = require('./mt5Bridge');
+const { ensureMt5RuntimeReady, fetchBridgeHealthWithRetries } = require('./mt5Startup');
+const { runStartupCleanup } = require('./startupRecovery');
 const { evaluateHybridDecision } = require('./hybridDecision');
 const { reconcileSignalResults } = require('./signals/reconcileSignalResults');
 const { manageLiveTrades } = require('./signals/liveTradeManager');
@@ -261,21 +262,27 @@ async function runStartupChecks() {
       errors.push('MT5 is required by the active profiles but MT5_BRIDGE_ENABLED is not true');
     } else {
       try {
-        const health = await getMt5Health();
+        const health = await fetchBridgeHealthWithRetries({
+          label: 'Startup MT5 bridge health',
+          requireConnected: config.mt5Bridge.requireConnected,
+        });
         log(`MT5 bridge health: ${health.status || 'ok'}`);
 
         if (config.mt5Bridge.requireConnected && health.connected !== true) {
-          errors.push('MT5 bridge is running but the terminal is not connected to the broker feed');
+          errors.push('HTTP bridge alive but MT5 terminal disconnected from the broker feed');
         }
 
         const quoteSymbols = [...new Set(mt5Profiles.map((profile) => profile.symbol).filter(Boolean))];
 
         for (const symbol of quoteSymbols) {
-          const quote = await getLatestMt5Quote(symbol);
+          const quote = await runStartupRequestWithRetries(
+            `Startup MT5 quote ${symbol}`,
+            () => getLatestMt5Quote(symbol),
+          );
           const quoteEpochSeconds = Number(quote.time);
 
           if (!Number.isFinite(quoteEpochSeconds) || quoteEpochSeconds <= 0) {
-            errors.push(`MT5 quote for ${symbol} is missing a broker timestamp`);
+            errors.push(`MT5 quote missing for ${symbol}: broker timestamp is absent or invalid`);
             continue;
           }
 
@@ -308,7 +315,7 @@ async function runStartupChecks() {
           }
         }
       } catch (err) {
-        errors.push(`MT5 bridge health check failed: ${err.message}`);
+        errors.push(`MT5 startup readiness failed: ${err.message}`);
       }
     }
   }
@@ -320,6 +327,49 @@ async function runStartupChecks() {
 
     throw new Error('Startup readiness check failed');
   }
+
+  log('Startup readiness complete');
+}
+
+function describeStartupRequestError(err) {
+  const message = String(err && err.message || err || 'unknown error');
+
+  if (/timeout|abort/i.test(message)) {
+    return `request timeout/abort: ${message}`;
+  }
+
+  if (/unreachable|ECONNREFUSED|fetch failed|Unable to connect/i.test(message)) {
+    return `HTTP bridge unreachable: ${message}`;
+  }
+
+  if (/numeric price|missing.*timestamp|missing/i.test(message)) {
+    return `quote missing: ${message}`;
+  }
+
+  return message;
+}
+
+async function runStartupRequestWithRetries(label, requestFn) {
+  const retries = Math.max(1, Number(config.startup.bridgeHealthRetries || 3));
+  const delayMs = Math.max(0, Number(config.startup.bridgeHealthRetryDelayMs || 2000));
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const result = await requestFn();
+      log(`${label} attempt ${attempt}/${retries} ok`);
+      return result;
+    } catch (err) {
+      lastError = err;
+      log(`${label} attempt ${attempt}/${retries} failed: ${describeStartupRequestError(err)}`);
+
+      if (attempt < retries) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw new Error(`${label} failed after ${retries} attempt(s): ${describeStartupRequestError(lastError)}`);
 }
 
 async function handleIncomingEvent(event) {
@@ -1028,6 +1078,7 @@ function startDailySummaryLoop() {
 }
 
 async function start() {
+  runStartupCleanup();
   acquireBotLock();
   log('Trading bot started...');
   log(`Paper trading mode: ${config.paperTradingMode}`);
@@ -1095,6 +1146,7 @@ async function start() {
   startTradeManagementLoop();
   startPublicPostingLoop();
   startDailySummaryLoop();
+  log('Bot live loop started');
 }
 
 start().catch((err) => {

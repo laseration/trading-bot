@@ -8,6 +8,7 @@
     "start:demo-pulse": "set \"TRADING_ENV=demo\" && node src/demoPulse.js",
     "test:mt5-demo-trade": "set \"TRADING_ENV=demo\" && node src/demoMt5TestTrade.js",
     "check": "node -e \"require('./src/config'); require('./src/strategy'); require('./src/hybridDecision'); require('./src/bot'); require('./src/risk'); console.log('ok')\"",
+    "check:startup": "set \"TRADING_ENV=demo\" && node scripts/checkStartupState.js",
     "analyze:trades": "node src/analyzeTradeHistory.js",
     "analyze:eurusd-bias": "node src/analyzeEurUsdBiasDiagnostics.js",
     "backtest": "node src/backtest.js",

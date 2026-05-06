@@ -39,6 +39,14 @@ npm run start:demo
 npm run start:live
 ```
 
+- For normal demo validation, `npm run start:demo` is enough. The Node bot loads `.env.demo`, performs startup cleanup, reuses or starts the MT5 HTTP bridge according to config, validates MT5 health and quote freshness, then starts the live loops.
+- You do not need to manually activate `.venv` for the Node bot. The MT5 bridge auto-start uses `.venv\Scripts\python.exe` directly.
+- To inspect startup state without placing trades:
+
+```powershell
+npm run check:startup
+```
+
 - The bridge and forwarder support the same mode switch:
 
 ```powershell
@@ -49,6 +57,13 @@ npm run forwarder:live
 ```
 
 - If `TRADING_ENV` is not set, the app falls back to the legacy `.env` file
+
+Startup cleanup flags:
+
+- `STARTUP_CLEAN_STALE_LOCKS=true` removes dead `runtime/bot.lock.json`, `runtime/mt5-bridge.lock.json`, and `runtime/mt5-bridge.pid` references.
+- `STARTUP_TERMINATE_OLD_BOT=false` refuses to start when a repo-owned previous bot is still alive; set `true` in demo only when you want startup to terminate an old repo-owned bot process.
+- `STARTUP_TERMINATE_OLD_BRIDGE=false` reuses a live repo-owned bridge by default; set `true` in demo only when you want startup to terminate and restart an old repo-owned bridge process.
+- `STARTUP_BRIDGE_HEALTH_RETRIES=3` and `STARTUP_BRIDGE_HEALTH_RETRY_DELAY_MS=2000` control retrying MT5 bridge health and quote readiness checks.
 
 Run the live bot:
 
