@@ -56,14 +56,14 @@ function getSessionBucket(sessionLabels = [], referenceTimeMs = Date.now()) {
 
 async function buildDecisionContext(profile, candidate, options = {}) {
   const quote = options.quote || (profile.dataSource === 'mt5' ? await getLatestMt5Quote(profile.symbol) : { price: Number(candidate.entry) || null });
-  const bars = options.bars || await getHistoricalBars(profile, {
+  const bars = options.bars || (options.marketContext ? [] : await getHistoricalBars(profile, {
     count: Math.max(config.strategy.lookbackBars, config.strategy.longMa + 20),
     timeframe: candidate.timeframe || config.strategy.timeframe,
-  });
-  const marketContext = summarizeMarketContext(bars, {
+  }));
+  const marketContext = options.marketContext || summarizeMarketContext(bars, {
     currentTimeMs: Date.now(),
   });
-  const newsRisk = await hasRecentRelevantNews(profile.symbol, config.strategy.newsCooldownMinutes);
+  const newsRisk = options.newsRisk ?? await hasRecentRelevantNews(profile.symbol, config.strategy.newsCooldownMinutes);
 
   return {
     quote,

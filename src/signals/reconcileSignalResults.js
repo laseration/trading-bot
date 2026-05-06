@@ -325,6 +325,15 @@ function getRecordIdentity(record, entryRows) {
   return { orderId: null, positionId: null, source: 'none' };
 }
 
+function getReconciliationIdentityStatus(record, entryRows = []) {
+  const identity = getRecordIdentity(record, entryRows);
+
+  return {
+    identity,
+    ignoredReason: identity.orderId || identity.positionId ? null : 'missing_execution_identity',
+  };
+}
+
 function markRecordReconciliationIgnored(record, reason) {
   if (!record || !record.id) {
     return;
@@ -500,10 +509,11 @@ async function reconcileSignalResults() {
   });
 
   for (const record of orderedTrackedSignals) {
-    const identity = getRecordIdentity(record, entryEventRows);
+    const identityStatus = getReconciliationIdentityStatus(record, entryEventRows);
+    const { identity } = identityStatus;
 
-    if (!identity.orderId && !identity.positionId) {
-      markRecordReconciliationIgnored(record, 'missing_execution_identity');
+    if (identityStatus.ignoredReason) {
+      markRecordReconciliationIgnored(record, identityStatus.ignoredReason);
       continue;
     }
 
@@ -574,7 +584,11 @@ async function reconcileSignalResults() {
 }
 
 module.exports = {
+  getProcessedTradeKeys,
+  getRecordIdentity,
+  getReconciliationIdentityStatus,
   inferActions,
   readTradeEventRows,
   reconcileSignalResults,
+  selectMatchedExitRows,
 };
