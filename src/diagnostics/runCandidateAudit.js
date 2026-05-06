@@ -6,6 +6,7 @@ const {
 } = require("./candidateAudit");
 
 const repoRoot = path.join(__dirname, "..", "..");
+const funnelDecisions = ["HOLD", "WATCH", "REJECT", "APPROVE", "EXECUTED"];
 const logPaths = {
   decisionHistoryText: path.join(repoRoot, "logs", "decision-history.jsonl"),
   eurusdBiasDiagnosticsText: path.join(repoRoot, "logs", "eurusd-bias-diagnostics.jsonl"),
@@ -70,7 +71,19 @@ function main() {
 
   printSection("Candidate Funnel");
   console.log(`total candidates: ${audit.candidates.totalCandidates}`);
-  printCounts(audit.candidates.decisionCounts, { keepOrder: true });
+  printCounts(Object.fromEntries(
+    funnelDecisions.map((decision) => [decision, audit.candidates.decisionCounts[decision] || 0]),
+  ), { keepOrder: true });
+
+  const otherDecisions = Object.fromEntries(
+    Object.entries(audit.candidates.decisionCounts)
+      .filter(([decision, count]) => !funnelDecisions.includes(decision) && Number(count) > 0),
+  );
+
+  if (Object.keys(otherDecisions).length > 0) {
+    printSection("Other Candidate Decisions");
+    printCounts(otherDecisions);
+  }
 
   printTop("Top Rejection Reasons", audit.candidates.topRejectionReasons);
   printTop("Top Hard Blocks", audit.candidates.topHardBlocks);

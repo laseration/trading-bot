@@ -101,11 +101,13 @@ function increment(map, key, amount = 1) {
   map[normalizedKey] = (map[normalizedKey] || 0) + amount;
 }
 
-function incrementMany(map, values) {
+function incrementMany(map, values, options = {}) {
   const usable = Array.isArray(values) ? values : values ? [values] : [];
 
   if (usable.length === 0) {
-    increment(map, "none");
+    if (options.includeNone) {
+      increment(map, "none");
+    }
     return;
   }
 
